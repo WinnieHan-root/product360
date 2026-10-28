@@ -230,7 +230,8 @@ git pull --ff-only
 bash scripts/release-git.sh
 ```
 
-`release-git.sh` = `git pull` + 递增/保持 `APP_VERSION` + `release.sh`，出问题时用旧 tag 重启。
+`release-git.sh` = 工作区干净检查 + `git pull --ff-only` + 可选更新 `APP_VERSION` + `release.sh`：
+带 `VERSION=2026.11.03` 才会改镜像 tag（旧 tag 保留，随时可回滚）；不带就沿用当前 tag 覆盖重建。
 
 **备用路径｜tar 包（ECS 不能出网时）**
 
@@ -410,6 +411,8 @@ server {
 | 静态资源缓存 | `/assets/index-*.js` 200，`Cache-Control: public, immutable` |
 | 关键接口 | 登录 201、列表返回 `SPU000167`、overview 正常 |
 | 浏览器真实渲染（容器链路，1280 宽） | 四页全部渲染，`scrollWidth == viewport`，**0 console error** |
+| `scripts/release-git.sh`（本次新增） | 工作区脏时正确中止；干净时 `git pull` → 打 tag `2026.10.28` → 重建重启 → 健康检查 + 冒烟全通过 |
+| `raw.githubusercontent.com` 拉 bootstrap 脚本 | 200 / 1694 B，公开仓库匿名可取 |
 
 本地复现命令（可选，用于改配置后回归）：
 
