@@ -54,46 +54,79 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 systemctl enable docker
 
-echo "==> 3/6 配置 daemon（数据目录 + 日志轮转 + 可选镜像加速）"
-mkdir -p "$DOCKER_ROOT"
-mkdir -p /etc/docker
-# 已有 daemon.json 时保留人工配置，只提示
-if [ -f /etc/docker/daemon.json ]; then
-  echo "    /etc/docker/daemon.json 已存在，跳过写入（请自行确认 data-root 为 $DOCKER_ROOT）"
-else
-  if [ -n "${DOCKER_MIRROR:-}" ]; then
-    MIRROR_LINE="  \"registry-mirrors\": [\"${DOCKER_MIRROR}\"],"
+echo "==> 3/6 探测可用的镜像加速器（国内直连 Docker Hub 基本不可用）"
+# 按优先级探测；DOCKER_MIRROR 显式指定时不再探测
+CANDIDATES="${DOCKER_MIRROR:-https://docker.m.daocloud.io https://docker.1ms.run https://docker.xuanyuan.me https://docker.1panel.live}"
+MIRRORS=""
+for m in $CANDIDATES; do
+  if curl -sI -m 6 "$m/v2/" 2>/dev/null | grep -qE "^HTTP/[0-9.]+ (200|401)"; then
+    echo "    ✓ $m"
+    MIRRORS="$MIRRORS\"$m\","
   else
-    MIRROR_LINE=""
+    echo "    ✗ $m"
   fi
+done
+MIRRORS="[${MIRRORS%,}]"
+
+echo "==> 4/6 配置 daemon（数据目录 + 日志轮转 + 镜像加速）"
+mkdir -p "$DOCKER_ROOT" /etc/docker
+if [ -f /etc/docker/daemon.json ]; then
+  echo "    /etc/docker/daemon.json 已存在，仅补充缺失字段"
+  python3 - "$DOCKER_ROOT" "$MIRRORS" <<'PY'
+import json, sys
+path = "/etc/docker/daemon.json"
+root, mirrors = sys.argv[1], json.loads(sys.argv[2])
+d = json.load(open(path))
+d.setdefault("data-root", root)
+d.setdefault("log-driver", "json-file")
+d.setdefault("log-opts", {"max-size": "50m", "max-file": "3"})
+if mirrors and not d.get("registry-mirrors"):
+    d["registry-mirrors"] = mirrors
+json.dump(d, open(path, "w"), indent=2)
+print(open(path).read())
+PY
+else
   cat >/etc/docker/daemon.json <<JSON
 {
   "data-root": "${DOCKER_ROOT}",
-${MIRROR_LINE}
+  "registry-mirrors": ${MIRRORS},
   "log-driver": "json-file",
   "log-opts": { "max-size": "50m", "max-file": "3" }
 }
 JSON
+  cat /etc/docker/daemon.json
 fi
 systemctl restart docker
 docker info >/dev/null 2>&1 || { echo "docker 启动失败，检查 /etc/docker/daemon.json" >&2; exit 1; }
+if [ "$(docker info --format '{{.DockerRootDir}}')" != "$DOCKER_ROOT" ]; then
+  echo "    ! data-root 未生效（期望 $DOCKER_ROOT），检查是否被其它配置文件覆盖" >&2
+fi
 
-echo "==> 4/6 创建代码目录并放行 git 属主检查"
+echo "==> 5/6 创建代码目录并放行 git 属主检查"
 mkdir -p "$APP_DIR"
 git config --system --add safe.directory "$APP_DIR" 2>/dev/null || true
 
-echo "==> 5/6 完成检查"
+echo "==> 6/6 完成检查"
 docker --version
 docker compose version
 git --version
 echo "Docker Root Dir: $(docker info --format '{{.DockerRootDir}}')"
 
-echo "==> 6/6 拉镜像连通性自检（nginx:1.27-alpine，约 20MB）"
+echo "==> 7/7 拉镜像自检（nginx:1.27-alpine，约 20MB）"
 if docker pull nginx:1.27-alpine >/dev/null 2>&1; then
   echo "    ✓ 镜像可正常拉取"
 else
-  echo "    ! 拉取失败：配置镜像加速后重试"
-  echo "      DOCKER_MIRROR=https://<你的阿里云加速地址> bash $0   或手动改 /etc/docker/daemon.json"
+  echo "    ✗ 镜像拉取失败 —— 无法构建，请先解决这一步" >&2
+  cat <<'TIP' >&2
+
+    最可靠的做法：用你阿里云账号的专用加速器
+      控制台 → 容器镜像服务 ACR → 镜像工具 → 镜像加速器 → 复制 https://xxxxxx.mirror.aliyuncs.com
+    然后重跑：
+      DOCKER_MIRROR=https://xxxxxx.mirror.aliyuncs.com bash scripts/server-bootstrap.sh
+      systemctl restart docker && docker pull nginx:1.27-alpine
+
+TIP
+  exit 2
 fi
 
 echo
