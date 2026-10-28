@@ -69,6 +69,28 @@ curl -sI -m 10 https://registry.npmmirror.com | head -1
 - 只有 github 通 → 构建时把 `NPM_REGISTRY` 设成 `https://registry.npmjs.org`
 - 两个都不通 → **改用离线包**：本地 `pnpm deploy:pack` 生成 tar，用 JumpServer 的**文件上传**功能传到 `$(dirname "$APP")`，再 `tar -xzf`（跳过后面的 `git clone`）
 
+**Docker Hub 是否可达（决定 build 能否成功）**：
+
+```bash
+curl -sI -m 8 https://registry-1.docker.io/v2/ | head -1
+```
+
+返回 `401` 才算通。国内 ECS 通常是 `i/o timeout`（DNS 解析到被墙的 Fastly IP），
+此时必须配镜像加速器（单行命令，避免 heredoc）：
+
+```bash
+for m in https://docker.m.daocloud.io https://docker.1ms.run https://docker.xuanyuan.me https://docker.1panel.live; do printf "%-32s " "$m"; curl -sI -m 6 "$m/v2/" | head -1 || echo 不可达; done
+```
+
+```bash
+python3 -c "import json;p='/etc/docker/daemon.json';d=json.load(open(p));d['registry-mirrors']=['https://docker.m.daocloud.io','https://docker.1ms.run','https://docker.xuanyuan.me','https://docker.1panel.live'];json.dump(d,open(p,'w'),indent=2)"
+systemctl restart docker && docker info --format '{{json .RegistryConfig.Mirrors}}'
+docker pull nginx:1.27-alpine
+```
+
+第三方加速器随时可能失效；最可靠的是阿里云账号专用加速器
+（控制台 → 容器镜像服务 ACR → 镜像工具 → 镜像加速器，`https://xxxxxx.mirror.aliyuncs.com`）。
+
 ### 1.3 没有 root / sudo
 
 全程用当前用户，但需要能写 `/opt`：
@@ -131,6 +153,14 @@ echo "===== deploy/.env ====="; cat deploy/.env
 2. 确认 `APP_ORIGIN` 里的 IP 是公网 IP（不是内网 `172.x` / `10.x`；若是内网，说明 `ifconfig.me` 被墙，手动改成本机公网 IP）
 
 > `POSTGRES_*` 三个值首次初始化后**不要再改**（改了连的是旧库名/旧密码）；`APP_VERSION` 可随手改。
+
+> **网页终端提示**：JumpServer / 阿里云 Workbench 里粘贴多行 heredoc 常被加上行首空格，
+> 导致结束符 `PY` / `EOF` 匹配不上、卡在 `>` 提示符（此时按 `Ctrl+C` 即可退出）。
+> 遇到这种情况改用下面这条**单行**命令生成 `.env`：
+>
+> ```bash
+> cd "$APP" && PUBIP=$(curl -s -m 5 https://ifconfig.me) && PGPASS=$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24) && JWT=$(openssl rand -hex 32) && printf 'POSTGRES_USER=product360\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=product360\nDATABASE_URL=postgresql://product360:%s@postgres:5432/product360\nJWT_SECRET=%s\nPORT=3000\nAPP_ORIGIN=http://%s\nHTTP_PORT=80\nNPM_REGISTRY=https://registry.npmmirror.com\nAPP_VERSION=2026.10.28\n' "$PGPASS" "$PGPASS" "$JWT" "$PUBIP" > deploy/.env && chmod 600 deploy/.env && cat deploy/.env
+> ```
 
 ---
 
