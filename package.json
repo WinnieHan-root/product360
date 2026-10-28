@@ -9,6 +9,7 @@
     "deploy:pack": "bash scripts/package-deploy.sh",
     "deploy:up": "docker compose -f deploy/docker-compose.prod.yml up -d",
     "deploy:down": "docker compose -f deploy/docker-compose.prod.yml down",
-    "deploy:logs": "docker compose -f deploy/docker-compose.prod.yml logs -f --tail=100 api"
+    "deploy:logs": "docker compose -f deploy/docker-compose.prod.yml logs -f --tail=100 api",
+    "deploy:release": "bash scripts/release-git.sh"
   }
 }

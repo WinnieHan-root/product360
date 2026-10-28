@@ -13,9 +13,9 @@ APP_DIR=/opt/product360
 echo "==> 1/5 安装基础工具"
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update -y
-  apt-get install -y ca-certificates curl gnupg tar
+  apt-get install -y ca-certificates curl gnupg tar git
 elif command -v dnf >/dev/null 2>&1; then
-  dnf install -y ca-certificates curl tar
+  dnf install -y ca-certificates curl tar git
 fi
 
 echo "==> 2/5 安装 Docker（若已安装则跳过）"
@@ -39,11 +39,14 @@ JSON
   systemctl restart docker
 fi
 
-echo "==> 4/5 创建部署目录"
+echo "==> 4/5 创建部署目录并放行 git 目录属主检查"
 mkdir -p "$APP_DIR"
+# 以 root 执行脚本、后续可能用别的用户 git pull 时避免 dubious ownership
+git config --system --add safe.directory "$APP_DIR" 2>/dev/null || true
 
 echo "==> 5/5 完成检查"
 docker --version
 docker compose version
+git --version
 echo
-echo "✓ 环境就绪。接下来把部署包上传到 $APP_DIR 并解压，见 docs/deploy-aliyun.md §3"
+echo "✓ 环境就绪。接下来在 $APP_DIR 拉代码（git clone）或解压部署包，见 docs/deploy-aliyun.md §3"

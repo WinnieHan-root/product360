@@ -2,7 +2,10 @@
 
 > 目标形态：**一台 ECS 跑三个容器** —— Nginx（静态站 + `/api` 反代）、NestJS API、PostgreSQL 16。
 > 访问方式：**公网 IP + 80 端口**，暂不配域名与 HTTPS（§7 给了后续步骤）。
-> 交付方式：本地打 tar 包 → scp 上传 → 服务器上构建并启动。
+> 交付方式：**从 GitHub 仓库拉代码**（`git clone` / `git pull`）→ 服务器上构建并启动；
+> 服务器无法出网时才用 tar 包离线交付（§3 方式 B）。
+
+代码仓库：<https://github.com/WinnieHan-root/product360>（分支 `main`）
 
 本文所有命令都在「本地」或「ECS」明确标注，不要混着执行。
 
@@ -26,6 +29,9 @@
 | 安全组入方向 | 22（仅自己的 IP）、80（0.0.0.0/0） | **5432 / 3000 不要对公网放行**，两个端口只在容器网络内可见 |
 | 磁盘 | 建议挂一块数据盘到 `/opt` | PG 数据在 docker volume，落在 `/var/lib/docker` |
 | Docker | 由 `server-bootstrap.sh` 安装 | 版本 ≥ 24，含 `docker compose` 插件 |
+| git | 由 `server-bootstrap.sh` 安装 | 走 GitHub 拉代码需要；纯 tar 包交付可不装 |
+| 出网能力 | 能访问 `github.com` 与 npm registry | 若 ECS 不能出网：改用 tar 包交付（§3 方式 B），并把 `NPM_REGISTRY` 指向内网源 |
+| 仓库权限 | 仓库当前为 **public**，`https://` 匿名可 clone | 转为 private 后需在 ECS 配 deploy key，见 §11.2 |
 
 ### 0.3 占用的端口
 
@@ -50,61 +56,84 @@
 | `scripts/package-deploy.sh` | 本地打包 `dist-deploy/product360-deploy-<时间戳>.tar.gz` + sha256 |
 | `scripts/server-bootstrap.sh` | ECS 上装 Docker、配镜像加速、建 `/opt/product360` |
 | `scripts/release.sh` | ECS 上构建、初始化库、启动、健康检查 + 冒烟 |
+| `scripts/release-git.sh` | ECS 上 `git pull` + `release.sh` 一条命令发版（§5.1 主路径） |
 | `apps/api/src/health/*` | `GET /api/health`（公开），容器 healthcheck 与上线验收都用它 |
 | `apps/api/src/main.ts` | CORS 来源改为 `APP_ORIGIN` 环境变量（原先硬编码 localhost） |
+| `.gitignore` | 排除 `.env` / `node_modules` / `dist` / `dist-deploy` / `.pi`（agent 会话状态） |
+
+> 仓库里**不含** `deploy/.env`、`node_modules`、构建产物；`docs/sample_exports`（18 个 CSV / 17 MB）随仓库提交，`db-init` 需要它。
 
 ---
 
 ## 2. 总流程（一次走完约 15 分钟）
 
 ```
-本地                          阿里云 ECS
-─────────────────────────────────────────────────────────
-1 打 tar 包
-2 scp 上传            →      3 装 Docker（只需一次）
-                       →      4 解包 + 配置 deploy/.env
-                       →      5 release.sh：build → db-init → up
-6 浏览器打开 http://<公网IP>
+阿里云 ECS                                           本地
+──────────────────────────────────────────────────────────────
+1 server-bootstrap.sh（装 Docker + git，只需一次）
+2 git clone → /opt/product360
+3 配置 deploy/.env（密码、JWT_SECRET）
+4 INIT_DB=1 bash scripts/release.sh
+     build → db-init → up → 健康检查 → 冒烟
+5 浏览器打开 http://<公网IP>
+                                                     6 后续发版：本地 push
+                                                        → 服务器 release-git.sh
 ```
+
+离线场景把第 1–2 步换成「scp tar 包 + 解包」，其余步骤完全一致（§3 方式 B）。
 
 ---
 
 ## 3. 首次部署（逐步执行）
 
-### 步骤 1｜本地打包
-
-```bash
-cd ~/product360
-bash scripts/package-deploy.sh
-# ✓ dist-deploy/product360-deploy-20261027-203012.tar.gz（约 18 MB）
-```
-
-包内含源码、`pnpm-lock.yaml`、`docs/sample_exports/*.csv`（17 MB，`db-init` 要用），
-不含 `node_modules` / `dist` / `.env` / `.git`。
-
-### 步骤 2｜上传到 ECS
-
-```bash
-scp dist-deploy/product360-deploy-*.tar.gz* root@<ECS公网IP>:/opt/product360/
-```
-
-### 步骤 3｜服务器初始化（只做一次）
+### 步骤 1｜服务器初始化（只做一次）
 
 ```bash
 ssh root@<ECS公网IP>
-sudo bash /opt/product360/scripts/server-bootstrap.sh   # 安装 Docker + 建目录
+# 仓库已是 public，脚本可直接从 raw 拉，不必先 clone
+curl -fsSL https://raw.githubusercontent.com/WinnieHan-root/product360/main/scripts/server-bootstrap.sh -o /tmp/bootstrap.sh
+sudo bash /tmp/bootstrap.sh
 ```
 
-### 步骤 4｜解包并配置环境变量
+做三件事：装 Docker + git、配镜像加速（含日志轮转）、建 `/opt/product360`。
+若代码已经在服务器上，也可以 `sudo bash /opt/product360/scripts/server-bootstrap.sh`。
+
+### 步骤 2｜取代码（二选一）
+
+**方式 A｜Git 拉取（推荐，便于后续 `git pull` 发版）**
+
+```bash
+cd /opt
+git clone https://github.com/WinnieHan-root/product360.git product360
+cd product360
+git log --oneline -1          # 应看到最新提交
+```
+
+**方式 B｜tar 包离线交付（ECS 不能出网时）**
+
+```bash
+# 本地
+cd ~/product360
+bash scripts/package-deploy.sh                 # → dist-deploy/product360-deploy-<时间戳>.tar.gz（约 8 MB）
+scp dist-deploy/product360-deploy-*.tar.gz* root@<ECS公网IP>:/opt/product360/
+
+# 服务器
+cd /opt/product360
+tar -xzf product360-deploy-*.tar.gz
+sha256sum -c product360-deploy-*.tar.gz.sha256   # 校验
+```
+
+包内含源码、`pnpm-lock.yaml`、`docs/sample_exports/*.csv`（`db-init` 要用），
+不含 `node_modules` / `dist` / `.env` / `.git`。
+
+### 步骤 3｜配置环境变量
 
 ```bash
 cd /opt/product360
-tar -xzf product360-deploy-*.tar.gz
-shasum -a 256 -c product360-deploy-*.tar.gz.sha256      # 校验（Linux 用 sha256sum -c）
-
 cp deploy/.env.production.example deploy/.env
 chmod 600 deploy/.env
 openssl rand -hex 32                                     # 生成 JWT_SECRET
+openssl rand -base64 24                                  # 生成 POSTGRES_PASSWORD
 vi deploy/.env                                           # 填 POSTGRES_PASSWORD / JWT_SECRET / APP_ORIGIN
 ```
 
@@ -120,7 +149,10 @@ vi deploy/.env                                           # 填 POSTGRES_PASSWORD
 | `NPM_REGISTRY` | `https://registry.npmmirror.com` | 国内构建显著提速 |
 | `APP_VERSION` | `2026.10.27` | 镜像 tag，发版递增，回滚时用 |
 
-### 步骤 5｜构建 + 初始化数据库 + 启动
+> `deploy/.env` 不进仓库、不进镜像（`.gitignore` + `.dockerignore` 双重排除）。
+> 方式 B 覆盖解包时它也不会被冲掉 —— 但**首次部署必须新建**。
+
+### 步骤 4｜构建 + 初始化数据库 + 启动
 
 ```bash
 cd /opt/product360
@@ -138,7 +170,9 @@ INIT_DB=1 bash scripts/release.sh
 4. 轮询 `/api/health` 直到 `{"status":"ok","products":1067}`
 5. 登录 + 拉一条列表验证
 
-### 步骤 6｜浏览器验收
+> `INIT_DB=1` 只在**首次**（或重建库时）用。平时发版不带这个环境变量，不会清数据。
+
+### 步骤 5｜浏览器验收
 
 打开 `http://<ECS公网IP>`，用 `admin@product360.dev / product360` 登录。
 
@@ -183,22 +217,47 @@ curl -s "http://127.0.0.1/api/products?pageSize=1" -H "authorization: Bearer $TO
 
 ### 5.1 发版（不重置数据）
 
+**主路径｜Git（一次命令）**
+
+```bash
+# 本地：提交并推送
+cd ~/product360
+git add -A && git commit -m "feat: ..." && git push
+
+# 服务器：拉取 + 重建镜像 + 重启 + 验收
+cd /opt/product360
+git pull --ff-only
+bash scripts/release-git.sh
+```
+
+`release-git.sh` = `git pull` + 递增/保持 `APP_VERSION` + `release.sh`，出问题时用旧 tag 重启。
+
+**备用路径｜tar 包（ECS 不能出网时）**
+
 ```bash
 # 本地
 bash scripts/package-deploy.sh
 scp dist-deploy/product360-deploy-*.tar.gz* root@<IP>:/opt/product360/
 
-# 服务器（保留上一版代码目录，方便回滚）
+# 服务器（deploy/.env 不会被覆盖）
 cd /opt/product360
-tar -xzf product360-deploy-*.tar.gz            # 覆盖同名文件，deploy/.env 不受影响
+tar -xzf product360-deploy-*.tar.gz
 sed -i 's/^APP_VERSION=.*/APP_VERSION=2026.11.03/' deploy/.env
 bash scripts/release.sh
 ```
 
+发版前建议打 tag，回滚时直接切回去：
+
+```bash
+git tag -a deploy-2026.11.03 -m "发版" && git push --tags
+```
+
 ### 5.2 回滚
 
-- **镜像回滚**：把 `deploy/.env` 的 `APP_VERSION` 改回上一个 tag，`docker compose up -d`
-- **代码回滚**：解压上一版 tar 包，`bash scripts/release.sh`
+- **代码回滚（Git）**：`git fetch --tags && git checkout deploy-2026.10.27 && bash scripts/release.sh`
+  回完用 `git checkout main` 回到主干
+- **代码回滚（tar）**：解压上一版 tar 包，`bash scripts/release.sh`
+- **镜像回滚**：把 `deploy/.env` 的 `APP_VERSION` 改回上一版 tag，`docker compose up -d`（不用重新构建）
 - **数据回滚**：见 5.4 备份
 
 ### 5.3 日志与状态
@@ -314,6 +373,7 @@ server {
 | Web 首屏 JS 2.2 MB（未拆包） | 移动网络首屏慢 | 后续按路由 `import()` 拆分 + `manualChunks` |
 | 4 个演示账号硬编码密码 | 安全风险 | 见 §6.1 |
 | 样例数据 17 MB 打进镜像 | 镜像变大 | 可用 `SAMPLE_EXPORT_DIR` 外挂，或用对象存储分发 |
+| 仓库 public，文档内含演示账号密码 | 任何人可读 | 上线前改密码（§6.1）；需要保密就把仓库转 private（§11.2） |
 
 ---
 
@@ -329,6 +389,10 @@ server {
 | 刷新详情页 404 | Nginx 缺 SPA fallback | `deploy/nginx/default.conf` 的 `try_files … /index.html` 已在，确认配置文件被挂进容器 |
 | 登录 401 / token 立刻失效 | 换过 `JWT_SECRET` | 属预期，重新登录 |
 | 中文排序/大小写异常 | PG locale | `POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C` 已固定；重建库才能改 |
+| `git clone` 卡住 / `Could not resolve host` | ECS 出网受限 | 改走 tar 包交付（§3 步骤 2 方式 B） |
+| `Permission denied (publickey)` | 仓库转 private 或 SSH key 未配 | 见 §11.2 deploy key；或临时用 `https://` 地址 |
+| `git pull` 报 `dubious ownership` | `/opt/product360` 属主与执行用户不同 | `git config --global --add safe.directory /opt/product360` |
+| `release-git.sh` 报本地有改动 | 服务器上直接改过文件 | `git stash` 或 `git checkout -- .` 后再发版 |
 
 ---
 
@@ -356,3 +420,56 @@ docker compose -f docker-compose.prod.yml --profile init run --rm db-init
 docker compose -f docker-compose.prod.yml up -d
 curl -s http://127.0.0.1:8080/api/health
 ```
+
+---
+
+## 11. 代码仓库
+
+### 11.1 仓库信息
+
+| 项 | 值 |
+|---|---|
+| 地址 | <https://github.com/WinnieHan-root/product360> |
+| 分支 | `main`（唯一主干，直接提交） |
+| 可见性 | 当前 **public** |
+| clone（匿名） | `git clone https://github.com/WinnieHan-root/product360.git` |
+| clone（SSH） | `git clone git@github.com:WinnieHan-root/product360.git`（需账号已加 SSH key） |
+| 大小 | 约 9.3 MB / 118 文件（含 17 MB 样例 CSV 压缩后的历史） |
+
+仓库里**有**：源码、`pnpm-lock.yaml`、`deploy/`、`scripts/`、`docs/`（含样例 CSV）。
+仓库里**没有**：`deploy/.env`、`node_modules`、`dist`、`dist-deploy`、`.pi`。
+
+### 11.2 仓库转 private 后怎么拉
+
+public 仓库 ECS 上无需凭据；一旦转 private，给服务器配 **deploy key**（只读、只对这一个仓库）：
+
+```bash
+# 服务器上生成专用 key
+ssh-keygen -t ed25519 -C "ecs-deploy" -f ~/.ssh/product360_deploy -N ""
+cat ~/.ssh/product360_deploy.pub
+# → 粘贴到 GitHub 仓库 Settings → Deploy keys（不勾 Allow write）
+
+cat >> ~/.ssh/config <<'CFG'
+Host github-product360
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/product360_deploy
+  IdentitiesOnly yes
+CFG
+
+# 用别名 clone（已有目录则改 remote）
+cd /opt
+git clone git@github-product360:WinnieHan-root/product360.git product360
+# 或：git remote set-url origin git@github-product360:WinnieHan-root/product360.git
+```
+
+### 11.3 提交前自检（防止把敏感文件推上去）
+
+```bash
+cd ~/product360
+git status --short                        # 不应出现 .env / deploy/.env
+git ls-files | grep -E '(^|/)\.env$'      # 应为空
+docker run --rm -v "$PWD":/w -w /w alpine sh -c 'grep -rl "POSTGRES_PASSWORD" --include="*.env" . || true'
+```
+
+`.env` 已被 `.gitignore` 排除，但**新建环境变量文件时仍要确认命名落在忽略规则内**（例如 `deploy/.env.local` 不在忽略列表里，需手动加）。
