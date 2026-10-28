@@ -79,7 +79,7 @@
 - `voc_nps_tag`：仅 `is_own_brand='1'`；解析 `nps_tag_list`（元素含 `tag_name` / `tag_sentiment`），按 (`spu_code`,`tag_name`,`sentiment`) 计数；`ratio = count / 该 SPU 打标总数`。
 - `voc_nps_sentiment`：仅 `is_own_brand='1'`；`bucket` 取 `sentiment_bucket`，`sentiment` 取 `nps_overall_sentiment`；`ratio = count / 该 SPU 评论总数`。
 - `voc_ticket_topic`：`spu_code` 非空者；主题取 `classification_cn`（空则回退 `effective_classification_tag`，再空则 `未分类`）；按 (`spu_code`,`topic`) 计数；`ratio = count / 该 SPU 工单总数`。`voc_type` 取该组众数。
-- `voc_competitor`：`is_own_brand='0'`；`voc_model` 为空 → `未匹配`；按 (`brand_name`,`voc_model`) 汇总 `avg(rating)`、`count(*)`。
+- `voc_competitor`：`is_own_brand <> '1'`；`voc_model` 为空 → `未匹配`；按 (`brand_name`,`voc_model`) 汇总 `avg(rating)`、`count(*)`。
 
 ### 3.1 `pd_spu` 预聚合列（加载阶段算好）
 
@@ -91,7 +91,22 @@
 | `sales_30d_qty` / `sales_30d_usd` | `sal_sku_day` 中 `order_date >= max(order_date) - 29d` 且同 `spu_code` 的 `sum(sale_qty)` / `sum(sales_amount_usd)` |
 | `in_stock_qty` / `on_way_qty` | 经 `pd_sku.sku_code` 关联 `scm_stock` 求和 |
 | `review_count` / `rating_avg` | `voc_review_day` 中同 `spu_code` 的 `sum(review_count)` / 加权平均星级 |
-| `coverage` | `sku_count>0` + `channel_count>0` + `sales_30d_qty>0 或订单行>0` + `review_count>0`，各计 1，范围 0–4 |
+| `coverage` | `sku_count>0` + `channel_count>0` + `has_sales`（`sal_sku_day` 中存在该 SPU 的销售行） + `review_count>0`，各计 1，范围 0–4 |
+
+### 3.2 SQL 版清洗（生产 StarRocks 同步）
+
+`sql/sync/` 下是与 loader **口径等价**的 SQL 实现（staging → 清洗 → 预聚合 → 批次），
+用于数据直接从 StarRocks 落 PG 的生产路径，不依赖 Node。
+
+- 入口：`sql/sync/README.md`（执行顺序、字段映射、6 条全局约定、增量改造点）
+- 验证：`pnpm db:sync:verify` 会重建临时库、全量跑一遍 SQL，再与 `pnpm db:sync`
+  的结果逐表逐列比对（当前 10 张表全部一致，含 `coverage` 分布 571/253/132/76/35）
+- 两条路径并存，**改口径必须同时改两边**；差异以本节规则为准
+
+实现时按代码对齐的两处细节（文档早前写法有偏差，以代码/SQL 为准）：
+
+- 竞品口径是 `is_own_brand <> '1'`（不是 `= '0'`），空值行也计入竞品
+- `coverage` 的第 3 项是「存在销售行」而非「销量 > 0」
 
 ## 4. API 契约
 
