@@ -33,6 +33,7 @@ services:
       dockerfile: deploy/api.Dockerfile
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+        APT_MIRROR: ${APT_MIRROR:-deb.debian.org}
     image: product360-api:${APP_VERSION:-latest}
     container_name: product360-api
     restart: unless-stopped
@@ -66,6 +67,7 @@ services:
       dockerfile: deploy/web.Dockerfile
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+        APT_MIRROR: ${APT_MIRROR:-deb.debian.org}
     image: product360-web:${APP_VERSION:-latest}
     container_name: product360-web
     restart: unless-stopped
@@ -90,6 +92,7 @@ services:
       dockerfile: deploy/api.Dockerfile
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+        APT_MIRROR: ${APT_MIRROR:-deb.debian.org}
     image: product360-api:${APP_VERSION:-latest}
     env_file:
       - .env

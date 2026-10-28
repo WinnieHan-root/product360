@@ -11,7 +11,13 @@ RUN corepack enable && corepack prepare pnpm@9.15.9 --activate \
  && pnpm config set registry "$NPM_REGISTRY" --global
 
 # Prisma 在 debian-slim 上需要 openssl
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+# 国内服务器 apt 走 deb.debian.org 会超时，可用 --build-arg APT_MIRROR=mirrors.aliyun.com
+ARG APT_MIRROR=deb.debian.org
+RUN if [ "$APT_MIRROR" != "deb.debian.org" ]; then \
+      sed -i "s|deb.debian.org|$APT_MIRROR|g" \
+        /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list 2>/dev/null || true; \
+    fi \
+ && apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

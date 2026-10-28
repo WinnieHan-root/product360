@@ -4,6 +4,7 @@ FROM node:22-bookworm-slim AS build
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 ARG NPM_REGISTRY=https://registry.npmjs.org
+ARG APT_MIRROR=deb.debian.org
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate \
  && pnpm config set registry "$NPM_REGISTRY" --global
 
