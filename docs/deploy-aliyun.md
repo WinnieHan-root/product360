@@ -498,3 +498,17 @@ docker run --rm -v "$PWD":/w -w /w alpine sh -c 'grep -rl "POSTGRES_PASSWORD" --
 ```
 
 `.env` 已被 `.gitignore` 排除，但**新建环境变量文件时仍要确认命名落在忽略规则内**（例如 `deploy/.env.local` 不在忽略列表里，需手动加）。
+
+---
+
+## 12. 网络端口与数据同步接入
+
+安全组申请单、以及「后续把数据同步进 PostgreSQL」的三种接入方案
+（SSH 隧道 / 公网直连 / 容器内同步）见 **[`docs/network-ports.md`](network-ports.md)**。
+
+要点：
+
+- 入方向只需 **80（全开）+ 22（限 IP）**，其余一律不开
+- postgres 默认只有容器内 `expose`，**安全组开 5432 也不通**；需要外部写入时叠加
+  `deploy/docker-compose.pg-tunnel.yml`（绑 `127.0.0.1:5432`）走 SSH 隧道
+- Docker publish 会绕过 ufw，端口管控只认安全组

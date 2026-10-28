@@ -160,6 +160,7 @@ cd /opt/product360 && VERSION=2026.11.03 bash scripts/release-git.sh
 | [`docs/商品中心MVP_PRD.md`](docs/商品中心MVP_PRD.md) | 产品需求（V2.0，两份分期的上游依据） |
 | [`docs/align-source-model.md`](docs/align-source-model.md) | **数据契约**：13 张表、字段映射、接口出入参、口径说明 |
 | [`docs/deploy-aliyun.md`](docs/deploy-aliyun.md) | 阿里云部署手册（首次部署 / 发版 / 回滚 / 备份 / HTTPS / 排障） |
+| [`docs/network-ports.md`](docs/network-ports.md) | 端口申请单 + PG 数据写入接入方案（SSH 隧道 / 直连 / 容器内同步） |
 | [`docs/deploy-runbook.md`](docs/deploy-runbook.md) | **逐段粘贴式执行手册**（JumpServer 网页终端、每步带期望输出与失败排查） |
 | [`docs/20261026-visual-review.md`](docs/20261026-visual-review.md) | 视觉评审与实施记录（P0 token 体系、P1 布局重排） |
 | [`docs/candidate_tables_ddl.sql`](docs/candidate_tables_ddl.sql) | 源表 DDL 参考 |

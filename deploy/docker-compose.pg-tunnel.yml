@@ -1,0 +1,20 @@
+# 可选覆盖文件：把 PostgreSQL 发布到宿主机回环地址，供 SSH 隧道访问
+#
+# 背景：deploy/docker-compose.prod.yml 里 postgres 只有 expose（容器网络内 5432），
+#      不对宿主机发布端口。需要从外部同步数据时，用本文件叠加一层，
+#      把 5432 只绑到 127.0.0.1，再由 SSH 隧道转发，公网无需开放 5432。
+#
+# 使用：
+#   docker compose -f deploy/docker-compose.prod.yml -f deploy/docker-compose.pg-tunnel.yml up -d
+#   docker ps --format '{{.Names}}\t{{.Ports}}' | grep postgres   # 期望 127.0.0.1:5432->5432/tcp
+#
+# 同步机侧：
+#   ssh -N -L 15432:127.0.0.1:5432 root@<ECS公网IP>
+#   psql "postgresql://product360:<密码>@127.0.0.1:15432/product360" -c "select count(*) from pd_spu;"
+#
+# 撤销：用不带本文件的方式重新 up -d 即可（端口发布消失）
+#   docker compose -f deploy/docker-compose.prod.yml up -d
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
