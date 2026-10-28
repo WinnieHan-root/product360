@@ -29,7 +29,7 @@ git fetch --prune origin
 git pull --ff-only
 AFTER=$(git rev-parse --short HEAD)
 if [ "$BEFORE" = "$AFTER" ]; then
-  echo "代码无变化（$AFTER），仍继续重新构建以应用 .env 变更"
+  echo "代码无变化（${AFTER}），仍继续重新构建以应用 .env 变更"
 else
   echo "代码 $BEFORE → $AFTER"
   git --no-pager log --oneline "$BEFORE..$AFTER" | head -10
