@@ -1,0 +1,117 @@
+# 阿里云单机部署：Nginx(web) + API + PostgreSQL 三个容器，同机同网络。
+# 用法见 docs/deploy-aliyun.md。所有敏感值来自同目录 .env（由 .env.production.example 复制）。
+name: product360
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: product360-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # 简体中文排序 + 时区，避免 top 品牌/名称排序在不同 locale 下漂移
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TZ: Asia/Shanghai
+    volumes:
+      - product360_pg:/var/lib/postgresql/data
+      - ../docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # 只在内网暴露，不映射到宿主机公网端口
+    expose:
+      - "5432"
+    networks: [product360]
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/api.Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+    image: product360-api:${APP_VERSION:-latest}
+    container_name: product360-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Shanghai
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PORT: "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    expose:
+      - "3000"
+    networks: [product360]
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+    image: product360-web:${APP_VERSION:-latest}
+    container_name: product360-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [product360]
+
+  # 一次性初始化：建表 → 加载样例 CSV → 写账号。不进默认启动，手动 run。
+  # 用 build 阶段的镜像（含 prisma CLI / tsx），跑完即弃。
+  db-init:
+    profiles: ["init"]
+    build:
+      context: ..
+      dockerfile: deploy/api.Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+    image: product360-api:${APP_VERSION:-latest}
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["sh", "-lc"]
+    command:
+      - >
+        cd apps/api &&
+        ./node_modules/.bin/prisma db push --skip-generate &&
+        node dist/sync/cli.js &&
+        ./node_modules/.bin/tsx prisma/seed.ts
+    networks: [product360]
+
+volumes:
+  product360_pg:
+    name: product360_pg
+
+networks:
+  product360:
+    name: product360

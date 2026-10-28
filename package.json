@@ -1,0 +1,14 @@
+{
+  "name": "product360",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @product360/shared build && pnpm --parallel --filter @product360/api --filter @product360/web dev",
+    "db:push": "pnpm --filter @product360/api db:push",
+    "db:sync": "pnpm --filter @product360/api db:sync",
+    "db:seed": "pnpm --filter @product360/api db:seed",
+    "deploy:pack": "bash scripts/package-deploy.sh",
+    "deploy:up": "docker compose -f deploy/docker-compose.prod.yml up -d",
+    "deploy:down": "docker compose -f deploy/docker-compose.prod.yml down",
+    "deploy:logs": "docker compose -f deploy/docker-compose.prod.yml logs -f --tail=100 api"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.turbo
+*.log
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.production.example
+.DS_Store

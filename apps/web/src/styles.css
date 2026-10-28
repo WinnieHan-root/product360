@@ -1,0 +1,758 @@
+/* ==========================================================================
+   商品中心 · 设计 token
+   只在这里定义视觉常量，组件内不再写死颜色 / 圆角 / 间距。
+   ========================================================================== */
+
+:root {
+  /* 背景三级 */
+  --bg-page: #f7f8fa;
+  --bg-card: #ffffff;
+  --bg-subtle: #f6f8fa;
+  --bg-hover: #f9fafb;
+
+  /* 边框 */
+  --border: #eaecf0;
+  --border-strong: #d0d5dd;
+
+  /* 文字三级 */
+  --text-1: #101828;
+  --text-2: #475467;
+  --text-3: #98a2b3;
+
+  /* 品牌与功能色 */
+  --brand: #1f8a4c;
+  --brand-weak: #e8f5ee;
+  --brand-strong: #176c3b;
+  --warn: #b54708;
+  --warn-weak: #fffaeb;
+  --danger: #b42318;
+  --danger-weak: #fef3f2;
+  --positive: #067647;
+
+  /* 形状 */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04);
+
+  /* 间距 */
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 24px;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg-page);
+  color: var(--text-1);
+}
+
+/* 数字统一等宽对齐，表格里尤其重要 */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ============================== 布局骨架 ============================== */
+
+.logo {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  font-weight: 650;
+  color: var(--brand);
+  font-size: 16px;
+  letter-spacing: 0.2px;
+}
+
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-4);
+  width: 100%;
+}
+
+/* 列表页顶部的范围 / 统计条 */
+.scope-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-2) var(--gap-4);
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.scope-bar__strong {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.scope-bar__sep {
+  color: var(--border-strong);
+}
+
+.scope-bar__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+/* ============================== 指标卡 ============================== */
+
+/* 用 grid 均分，不再依赖 24 栅格取整 */
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--gap-3);
+}
+
+/* 三图并列；窄屏（1280）下保持三列但要允许图表压缩 */
+.chart-band {
+  display: grid;
+  grid-template-columns: 1.05fr 1.15fr 1fr;
+  gap: var(--gap-3);
+}
+
+.chart-band > * {
+  min-width: 0;
+}
+
+.chart-band .section-card .ant-card-head {
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+.chart-band .section-card .ant-card-body {
+  padding: 8px 14px 10px;
+}
+
+.metric-card {
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+.metric-card__label {
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metric-card__value {
+  margin-top: 4px;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.2;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.metric-card__value--state {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.metric-card__unit {
+  margin-left: 2px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+.metric-card__meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============================== 区块卡 ============================== */
+
+.section-card.ant-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+.section-card .ant-card-head {
+  min-height: 44px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-card .ant-card-head-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  padding: 10px 0;
+}
+
+.section-card .ant-card-body {
+  padding: 16px;
+}
+
+.section-card--flush .ant-card-body {
+  padding: 0;
+}
+
+/* 区块说明文字 */
+.section-note {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
+/* 提示条：口径说明 / 延迟 / 空态解释 */
+.hint-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.6;
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+
+.hint-strip--warn {
+  background: var(--warn-weak);
+  border-color: #fedf89;
+  color: var(--warn);
+}
+
+/* ============================== 键值栅格 ============================== */
+
+.kv-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--kv-cols, 3), minmax(0, 1fr));
+  gap: 10px var(--gap-5);
+}
+
+.kv-item {
+  min-width: 0;
+}
+
+.kv-item__label {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kv-item__value {
+  font-size: 14px;
+  color: var(--text-1);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.kv-item__meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* ============================== 五态 ============================== */
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.state__icon {
+  font-size: 11px;
+  display: inline-flex;
+}
+
+/* 暂无数据：最轻，纯灰字 */
+.state--empty {
+  color: var(--text-3);
+}
+
+/* 未接入：虚线描边，表达"源表没有这个字段" */
+.state--nc {
+  padding: 0 6px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--text-3);
+}
+
+/* 无权限：浅灰底 + 锁，和"没数据"明显区分 */
+.state--na {
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: #f2f4f7;
+  color: #667085;
+}
+
+/* 延迟：橙色，唯一带警示色的在值状态 */
+.state--delayed {
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--warn-weak);
+  color: var(--warn);
+}
+
+/* ============================== 分布条 ============================== */
+
+.dist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+}
+
+.dist__track {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--bg-subtle);
+}
+
+.dist__seg {
+  height: 100%;
+  min-width: 0;
+  transition: width 0.2s ease;
+}
+
+.dist__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dist__row {
+  display: grid;
+  grid-template-columns: 10px 1fr auto auto;
+  align-items: center;
+  gap: var(--gap-2);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.dist__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.dist__count {
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.dist__ratio {
+  min-width: 44px;
+  text-align: right;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================== 封面缩略图 ============================== */
+
+.product-thumb {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-weak) center / cover no-repeat;
+  color: var(--brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border: 1px solid var(--border);
+}
+
+.product-thumb--lg {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius);
+}
+
+/* ============================== 表格密度 ============================== */
+
+.ant-table-thead > tr > th {
+  background: var(--bg-subtle) !important;
+  font-weight: 600 !important;
+  color: var(--text-2) !important;
+  font-size: 12px !important;
+  white-space: nowrap;
+}
+
+.ant-table-tbody > tr > td {
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+.ant-table-tbody > tr > td.ant-table-cell {
+  color: var(--text-1);
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover) !important;
+}
+
+/* 表格内的次级说明行 */
+.cell-sub {
+  font-size: 12px;
+  color: var(--text-3);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell-title {
+  color: var(--text-1);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 覆盖度刻度：比 4 个孤立小点更容易扫读 */
+.coverage {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.coverage__bars {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.coverage__bar {
+  width: 6px;
+  height: 12px;
+  border-radius: 2px;
+  background: #e4e7ec;
+}
+
+.coverage__bar--on {
+  background: var(--brand);
+}
+
+.coverage__value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 详情页 8/4 栅格 ---------- */
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--gap-3);
+  align-items: start;
+}
+
+.detail-col {
+  display: grid;
+  gap: var(--gap-3);
+  align-content: start;
+  min-width: 0;
+}
+
+.completeness__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.completeness__ratio {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.completeness__pct {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.completeness__label {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.chip-list__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.chip-list__reason {
+  color: var(--text-3);
+}
+
+.mini-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mini-stats__item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
+.mini-stats__label {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.mini-stats__value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.4;
+}
+
+/* ---------- 渠道在线状态列表 ---------- */
+.status-list {
+  display: grid;
+  gap: 2px;
+  max-height: 168px;
+  overflow: auto;
+}
+
+.status-list__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  border-bottom: 1px dashed var(--border);
+  font-size: 12px;
+}
+
+.status-list__row:last-child {
+  border-bottom: none;
+}
+
+.status-list__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+.status-list__meta {
+  color: var(--text-3);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.status-dot--on {
+  background: var(--brand);
+}
+
+.status-dot--off {
+  background: #d0d5dd;
+}
+
+/* ---------- 通用两列（外部页 14/10、12/12） ---------- */
+.grid-2col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--gap-3);
+  align-items: start;
+}
+
+/* ---------- 商品头卡：左身份 + 右跨页签指标带 ---------- */
+.product-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--gap-4);
+  align-items: center;
+}
+
+.product-head__identity {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.product-head__tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.head-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(96px, auto));
+  gap: 0;
+  border-left: 1px solid var(--border);
+}
+
+.head-stat {
+  padding: 2px 16px;
+  border-right: 1px solid var(--border);
+  text-align: right;
+}
+
+.head-stat:last-child {
+  border-right: none;
+  padding-right: 2px;
+}
+
+.head-stat__label {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.head-stat__value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+@media (max-width: 1280px) {
+  .product-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .head-metrics {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+  }
+
+  .head-stat:first-child {
+    padding-left: 0;
+    text-align: left;
+  }
+}
+
+/* 首屏密度：压缩图区与状态列表高度 */
+.scope-bar {
+  padding: 6px 12px;
+}
+
+.chart-band .section-card .ant-card-head-title {
+  font-size: 13px;
+}
+
+.chart-band .section-card .section-note {
+  font-size: 11px;
+}
+
+.card-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 12px 0;
+}
+
+.status-list {
+  max-height: 122px;
+}
+
+.pack-label {
+  font-size: 12px;
+  color: var(--text-3);
+  margin: 6px 0 2px;
+}
+
+.section-card .ant-card-body {
+  padding: 14px 16px;
+}
+
+.section-card--flush .ant-card-body {
+  padding: 0;
+}
+
+.detail-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.detail-grid--3 .detail-col {
+  min-width: 0;
+}
+
+.pack-line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.pack-line__label {
+  color: var(--text-3);
+  flex: 0 0 28px;
+}
+
+.pack-line__value {
+  color: var(--text-1);
+  min-width: 0;
+}
+
+.pack-line__sep {
+  color: var(--text-3);
+  margin: 0 2px;
+}

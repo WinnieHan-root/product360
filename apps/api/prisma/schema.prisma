@@ -1,0 +1,354 @@
+// 商品中心第一期底表模型
+// 对齐 docs/sample_exports 中 8 张源表的实际列，按页面组织（非源表 1:1 镜像）。
+// 设计约束：
+//  1. 底表不建外键。源表按维度独立抽样，存在大量无法关联的悬挂键；建外键会阻塞加载。
+//  2. 服务层只读底表，请求链路不连 StarRocks，不做跨库拼接。
+//  3. 页面需要的口径在加载阶段算好（覆盖率、日汇总、占比），避免请求期扫全表。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  employee
+  operator
+  data_admin
+  platform_admin
+}
+
+enum ScopeType {
+  brand
+  category
+}
+
+enum DataStatus {
+  ready
+  empty
+  not_connected
+  delayed
+}
+
+/// 商品主档，来源 dim_pd_spu_info_df，一个 SPU 一行（保留最新 ds）
+model PdSpu {
+  id                 String    @id @default(uuid())
+  ds                 DateTime  @db.Date
+  companyCode        String?   @map("company_code")
+  spuCode            String    @unique @map("spu_code")
+  spuName            String    @map("spu_name")
+  spuNameEn          String?   @map("spu_name_en")
+  spuAliasName       String?   @map("spu_alias_name")
+  spuImage           String?   @map("spu_image")
+  spuLevelNew        String?   @map("spu_level_new")
+  spuState           Int       @map("spu_state")
+  spuStateDesc       String?   @map("spu_state_desc")
+  spuModelName       String?   @map("spu_model_name")
+  spuProductTypeDesc String?   @map("spu_product_type_desc")
+  spuDesc            String?   @map("spu_desc")
+  sellingPoint       String?   @map("selling_point")
+  productLineCode    String?   @map("product_line_code")
+  productLineName    String?   @map("product_line_name")
+  gtmCode            String?   @map("gtm_code")
+  gtmName            String?   @map("gtm_name")
+  productLeaderCode  String?   @map("product_leader_code")
+  productLeaderName  String?   @map("product_leader_name")
+  plannerName        String?   @map("planner_name")
+  brandCode          String?   @map("brand_code")
+  suggestCurrency    String?   @map("suggest_currency")
+  suggestPrice       Decimal?  @map("suggest_price") @db.Decimal(14, 4)
+  listingTime        DateTime? @map("listing_time")
+  isNewSpu           Int?      @map("is_new_spu")
+  vocModel           String?   @map("voc_model")
+  categoryCode       String?   @map("category_code")
+  categoryName       String?   @map("category_name")
+  categoryCodeL1     String?   @map("category_code_level1")
+  categoryNameL1     String?   @map("category_name_level1")
+  categoryCodeL2     String?   @map("category_code_level2")
+  categoryNameL2     String?   @map("category_name_level2")
+  categoryCodeL3     String?   @map("category_code_level3")
+  categoryNameL3     String?   @map("category_name_level3")
+  categoryCodeL4     String?   @map("category_code_level4")
+  categoryNameL4     String?   @map("category_name_level4")
+  categoryCodeL5     String?   @map("category_code_level5")
+  categoryNameL5     String?   @map("category_name_level5")
+  categoryTagName    String?   @map("category_tag_name")
+  isElectricalDesc   String?   @map("is_electrical_desc")
+  classTagName       String?   @map("class_tag_name")
+  senceTagName       String?   @map("sence_tag_name")
+  fmcgTagName        String?   @map("fmcg_tag_name")
+  iotTagName         String?   @map("iot_tag_name")
+  tagInfo            Json?     @map("tag_info")
+  seriesInfo         Json?     @map("series_info")
+  modelInfo          Json?     @map("model_info")
+  deleted            Int       @default(0)
+  /// 数据覆盖度 0-4：SKU / 渠道编码 / 销量 / 口碑 各计 1。列表默认按它倒序，让数据齐全的 SPU 先出现。
+  coverage           Int       @default(0)
+  // 以下为加载阶段预聚合的列表列，避免请求期跨表聚合
+  skuCount           Int       @default(0) @map("sku_count")
+  channelCount       Int       @default(0) @map("channel_count")
+  hasSales           Boolean   @default(false) @map("has_sales")
+  marketCountries    String[]  @default([]) @map("market_countries")
+  sales30dQty        Int       @default(0) @map("sales_30d_qty")
+  sales30dUsd        Decimal?  @map("sales_30d_usd") @db.Decimal(16, 4)
+  inStockQty         Int       @default(0) @map("in_stock_qty")
+  onWayQty           Int       @default(0) @map("on_way_qty")
+  reviewCount        Int       @default(0) @map("review_count")
+  ratingAvg          Decimal?  @map("rating_avg") @db.Decimal(4, 3)
+  updateTime         DateTime? @map("update_time")
+
+  @@index([brandCode])
+  @@index([categoryCodeL1])
+  @@index([spuState])
+  @@index([coverage])
+  @@index([sales30dUsd])
+  @@index([reviewCount])
+  @@index([updateTime])
+  @@map("pd_spu")
+}
+
+/// SKU 主档，来源 dim_pd_sku_info_df
+model PdSku {
+  id                   String    @id @default(uuid())
+  ds                   DateTime  @db.Date
+  skuCode              String    @unique @map("sku_code")
+  skuCodeNew           String?   @map("sku_code_new")
+  scmSkuCode           String?   @map("scm_sku_code")
+  skuName              String    @map("sku_name")
+  skuNameEn            String?   @map("sku_name_en")
+  skuImageUrl          String?   @map("sku_image_url")
+  skuState             Int?      @map("sku_state")
+  skuStateDesc         String?   @map("sku_state_desc")
+  brandCode            String?   @map("brand_code")
+  brandName            String?   @map("brand_name")
+  suggestCurrency      String?   @map("suggest_currency")
+  suggestPrice         Decimal?  @map("suggest_price") @db.Decimal(14, 4)
+  spuCode              String?   @map("spu_code")
+  spuName              String?   @map("spu_name")
+  spuModelName         String?   @map("spu_model_name")
+  specProductLength    Decimal?  @map("spec_product_length") @db.Decimal(12, 4)
+  specProductWidth     Decimal?  @map("spec_product_width") @db.Decimal(12, 4)
+  specProductHeight    Decimal?  @map("spec_product_height") @db.Decimal(12, 4)
+  specProductWeight    Decimal?  @map("spec_product_weight") @db.Decimal(12, 4)
+  specProductNetWeight Decimal?  @map("spec_product_net_weight") @db.Decimal(12, 4)
+  specCartonLength     Decimal?  @map("spec_carton_length") @db.Decimal(12, 4)
+  specCartonWidth      Decimal?  @map("spec_carton_width") @db.Decimal(12, 4)
+  specCartonHeight     Decimal?  @map("spec_carton_height") @db.Decimal(12, 4)
+  specCartonWeight     Decimal?  @map("spec_carton_weight") @db.Decimal(12, 4)
+  specCartonNum        Int?      @map("spec_carton_num")
+  specMaterial         String?   @map("spec_material")
+  skuColor             String?   @map("sku_color")
+  skuSize              String?   @map("sku_size")
+  skuPack              String?   @map("sku_pack")
+  listingTime          DateTime? @map("listing_time")
+  attrInfo             Json?     @map("attr_info")
+  sensitiveInfo        Json?     @map("sensitive_info")
+  deleted              Int       @default(0)
+  updateTime           DateTime? @map("update_time")
+
+  @@index([spuCode])
+  @@index([brandCode])
+  @@map("pd_sku")
+}
+
+/// 外部编码，来源 dim_sal_sku_info_df。仅有 ASIN 与平台 SKU，源表无 UPC/GTIN/EAN/Item ID。
+model SalSkuCode {
+  id              String    @id @default(uuid())
+  ds              DateTime  @db.Date
+  channel         String    @map("channel")
+  channelName     String?   @map("channel_name")
+  site            String?   @map("site")
+  shopCode        String?   @map("shop_code")
+  shopName        String?   @map("shop_name")
+  saleSkuCode     String    @map("sale_sku_code")
+  asin            String?
+  parentAsin      String?   @map("parent_asin")
+  asinUrl         String?   @map("asin_url")
+  skuCode         String?   @map("sku_code")
+  scmSkuCode      String?   @map("scm_sku_code")
+  spuCode         String?   @map("spu_code")
+  listingStatus   String?   @map("listing_status")
+  salListingTime  DateTime? @map("sal_listing_time")
+  firstOrderTime  DateTime? @map("first_order_time")
+  suggestCurrency String?   @map("suggest_currency")
+  suggestPrice    Decimal?  @map("suggest_price") @db.Decimal(14, 4)
+  saleSkuQty      Int?      @map("sale_sku_qty")
+  salImageUrl     String?   @map("sal_image_url")
+  categoryNameL1  String?   @map("category_name_level1")
+  listingOperator String?   @map("listing_operator")
+
+  @@index([spuCode])
+  @@index([skuCode])
+  @@index([asin])
+  @@index([channel, site, shopCode])
+  @@map("sal_sku_code")
+}
+
+/// 销售日汇总，来源 dws_sal_sku_statistics_td_df，按 天/平台/店铺/站点/平台SKU 落一行
+model SalSkuDay {
+  id             String   @id @default(uuid())
+  ds             DateTime @db.Date
+  orderDate      DateTime @map("order_date") @db.Date
+  platform       String   @map("platform")
+  channel        String?  @map("channel")
+  shop           String?  @map("shop")
+  countryCode    String?  @map("country_code")
+  countryName    String?  @map("country_name")
+  platformSku    String   @map("platform_sku")
+  asin           String?
+  parentAsin     String?  @map("parent_asin")
+  skuCode        String?  @map("sku_code")
+  spuCode        String?  @map("spu_code")
+  spuName        String?  @map("spu_name")
+  skuName        String?  @map("sku_name")
+  brandCode      String?  @map("brand_code")
+  categoryNameL1 String?  @map("category_name_level1")
+  orderQty       Int      @default(0) @map("order_qty")
+  saleQty        Int      @default(0) @map("sale_qty")
+  salesAmount    Decimal? @map("sales_amount") @db.Decimal(16, 4)
+  salesAmountUsd Decimal? @map("sales_amount_usd") @db.Decimal(16, 4)
+  returnQty      Int      @default(0) @map("after_sale_replacement_qty")
+
+  @@index([spuCode, orderDate])
+  @@index([skuCode, orderDate])
+  @@index([platformSku])
+  @@map("sal_sku_day")
+}
+
+/// 库存，来源 dwb_scm_stock_channel_df，按 渠道/国家/SKU/仓库 落一行
+model ScmStock {
+  id            String   @id @default(uuid())
+  ds            DateTime @db.Date
+  channelCode   String   @map("channel_code")
+  countryCode   String?  @map("country_code")
+  skuCode       String   @map("sku_code")
+  warehouseCode String?  @map("warehouse_code")
+  warehouseName String?  @map("warehouse_name")
+  inStockQty    Int      @default(0) @map("in_stock_qty")
+  onWayQty      Int      @default(0) @map("on_way_qty")
+
+  @@index([skuCode])
+  @@index([channelCode])
+  @@map("scm_stock")
+}
+
+/// 自有评论日汇总，来源 dws_cs_voc_nps_review_df 中 is_own_brand = 1
+model VocReviewDay {
+  id          String   @id @default(uuid())
+  ds          DateTime @db.Date
+  spuCode     String   @map("spu_code")
+  reviewDate  DateTime @map("review_date") @db.Date
+  ratingAvg   Decimal  @map("rating_avg") @db.Decimal(4, 3)
+  reviewCount Int      @map("review_count")
+  source      String?  @default("dws_cs_voc_nps_review_df")
+
+  @@unique([spuCode, reviewDate])
+  @@index([reviewDate])
+  @@map("voc_review_day")
+}
+
+/// 自有评论体验因子，来源 dws_cs_voc_nps_review_df.nps_tag_list（is_own_brand = 1）
+model VocNpsTag {
+  id        String   @id @default(uuid())
+  ds        DateTime @db.Date
+  spuCode   String   @map("spu_code")
+  tagName   String   @map("tag_name")
+  sentiment String?  @map("sentiment")
+  tagCount  Int      @map("tag_count")
+  ratio     Decimal  @map("ratio") @db.Decimal(6, 4)
+  source    String?  @default("dws_cs_voc_nps_review_df")
+
+  @@unique([spuCode, tagName, sentiment])
+  @@index([spuCode])
+  @@map("voc_nps_tag")
+}
+
+/// NPS 五档占比，来源 dws_cs_voc_nps_review_df 中 is_own_brand = 1 的 nps_overall_sentiment
+model VocNpsSentiment {
+  id        String   @id @default(uuid())
+  ds        DateTime @db.Date
+  spuCode   String   @map("spu_code")
+  sentiment String   @map("sentiment")
+  bucket    Int      @map("bucket")
+  itemCount Int      @map("item_count")
+  ratio     Decimal  @map("ratio") @db.Decimal(6, 4)
+  source    String?  @default("dws_cs_voc_nps_review_df")
+
+  @@unique([spuCode, sentiment])
+  @@map("voc_nps_sentiment")
+}
+
+/// 服务工单主题，来源 dwb_cs_voc_record_channel_hf（该表 rating 全为 0，只用于主题分类，不参与星级）
+model VocTicketTopic {
+  id          String   @id @default(uuid())
+  ds          DateTime @db.Date
+  spuCode     String   @map("spu_code")
+  topic       String   @map("topic")
+  vocType     String?  @map("voc_type")
+  ticketCount Int      @map("ticket_count")
+  ratio       Decimal  @map("ratio") @db.Decimal(6, 4)
+  source      String?  @default("dwb_cs_voc_record_channel_hf")
+
+  @@unique([spuCode, topic])
+  @@index([spuCode])
+  @@map("voc_ticket_topic")
+}
+
+/// 竞品口碑，来源 dws_cs_voc_nps_review_df 中 is_own_brand = 0，按品牌 + 型号汇总
+model VocCompetitor {
+  id          String   @id @default(uuid())
+  ds          DateTime @db.Date
+  spuCode     String?  @map("spu_code")
+  brandName   String   @map("brand_name")
+  vocModel    String?  @map("voc_model")
+  ratingAvg   Decimal  @map("rating_avg") @db.Decimal(4, 3)
+  reviewCount Int      @map("review_count")
+  source      String?  @default("dws_cs_voc_nps_review_df")
+
+  @@unique([brandName, vocModel])
+  @@map("voc_competitor")
+}
+
+/// 同步批次，替代 StarRocks 写入记录。asOf 取该源表最近一次成功批次。
+model SyncBatch {
+  id          String    @id @default(uuid())
+  batchId     String    @map("batch_id")
+  sourceTable String    @map("source_table")
+  sourceDs    DateTime? @map("source_ds") @db.Date
+  rowCount    Int       @map("row_count")
+  status      String    @map("status")
+  message     String?
+  startedAt   DateTime  @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+
+  @@index([sourceTable, finishedAt])
+  @@index([batchId])
+  @@map("sync_batch")
+}
+
+model User {
+  id                String      @id @default(uuid())
+  name              String
+  email             String      @unique
+  passwordHash      String      @map("password_hash")
+  role              UserRole
+  canViewCommercial Boolean     @default(false) @map("can_view_commercial")
+  scopes            UserScope[]
+
+  @@map("users")
+}
+
+/// 权限范围：品牌用 brand_code，类目用一级类目编码
+model UserScope {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopeType ScopeType @map("scope_type")
+  scopeCode String    @map("scope_code")
+
+  @@unique([userId, scopeType, scopeCode])
+  @@map("user_scopes")
+}
