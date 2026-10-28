@@ -93,15 +93,23 @@
 | `review_count` / `rating_avg` | `voc_review_day` 中同 `spu_code` 的 `sum(review_count)` / 加权平均星级 |
 | `coverage` | `sku_count>0` + `channel_count>0` + `has_sales`（`sal_sku_day` 中存在该 SPU 的销售行） + `review_count>0`，各计 1，范围 0–4 |
 
-### 3.2 SQL 版清洗（生产 StarRocks 同步）
+### 3.2 SQL 版清洗（两套方言，各管一段）
 
-`sql/sync/` 下是与 loader **口径等价**的 SQL 实现（staging → 清洗 → 预聚合 → 批次），
-用于数据直接从 StarRocks 落 PG 的生产路径，不依赖 Node。
+清洗口径除了 TS loader，还有两套 SQL 实现，**分属不同方言、不同用途**：
 
-- 入口：`sql/sync/README.md`（执行顺序、字段映射、6 条全局约定、增量改造点）
-- 验证：`pnpm db:sync:verify` 会重建临时库、全量跑一遍 SQL，再与 `pnpm db:sync`
-  的结果逐表逐列比对（当前 10 张表全部一致，含 `coverage` 分布 571/253/132/76/35）
-- 两条路径并存，**改口径必须同时改两边**；差异以本节规则为准
+| 目录 | 方言 | 用途 |
+|---|---|---|
+| `sql/dataphin/` | **StarRocks** | **生产链路**：Dataphin 计算任务读数仓源表 → 写 `p360_*` 中间表 → 集成任务同步到 PG |
+| `sql/sync/` | PostgreSQL | 离线回归基线：本地 CSV → staging → 清洗，用于证明与 TS loader 逐值等价 |
+
+- 生产入口：`sql/dataphin/README.md`（任务依赖顺序、`${bizdate}` 分区写法、集成任务同名映射、
+  `00_pg_patch.sql` 给 `id` 补 `DEFAULT gen_random_uuid()`、未在真实 SR 实例上的风险点）
+- 回归入口：`sql/sync/README.md`；验证命令 `pnpm db:sync:verify` 会重建临时库、全量跑一遍
+  PG 版 SQL，再与 `pnpm db:sync` 的结果逐表逐列比对（当前 10 张表全部一致，
+  含 `coverage` 分布 571/253/132/76/35）
+- SR 版是由 PG 版逐条翻译而来，翻译**引入的唯一已知差异**：`sal_sku_code` 差 1 行
+  （源表无 `update_time`，SR 版按 `sal_listing_time DESC` 取代 CSV 行序），详见 `sql/dataphin/README.md` §6
+- 三处并存（TS loader / `sql/sync/` / `sql/dataphin/`），**改口径必须同时改三处**；差异以本节规则为准
 
 实现时按代码对齐的两处细节（文档早前写法有偏差，以代码/SQL 为准）：
 
