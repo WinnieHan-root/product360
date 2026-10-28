@@ -12,7 +12,22 @@
 
 ---
 
-## 0. 预检（只读，5 条命令）
+## 0. 路径约定（先定一次，后面所有命令都用它）
+
+```bash
+# 有数据盘（df -h 里能看到 /data 且容量 ≥50G）就用数据盘，否则用 /opt
+export APP=/data/product360
+mkdir -p "$(dirname "$APP")"
+df -h "$(dirname "$APP")" | tail -1
+```
+
+> 为什么：镜像 + 构建缓存约 6 GB，20 GB 的系统盘会被写满。
+> 若数据盘存在，还要把 Docker 数据目录也挪过去（`scripts/server-bootstrap.sh` 已自动处理，
+> 手动做见 `docs/deploy-aliyun.md` §0.4）。下文所有命令都用 `$APP`，换路径只改这一个变量。
+
+---
+
+## 1. 预检（只读）
 
 ```bash
 sudo -i                                  # 有 sudo 就进 root；没有就跳过，后面命令自己加 sudo
@@ -29,10 +44,10 @@ docker --version 2>/dev/null; docker compose version 2>/dev/null; git --version 
 | 架构 | `x86_64` | `aarch64` 也能跑（镜像是本地构建，不拉预构建镜像），继续 |
 | CPU / 内存 | ≥ 4 核 / ≥ 7 GiB | 2 核会构建很慢，加 `--build-arg` 无用，先扩配 |
 | 根分区剩余 | ≥ 15 GB | 不足先清理或挂数据盘 |
-| docker | 有版本号 + `Docker Compose version v2+` | 没有则执行 §0.1 |
-| git | 有版本号 | 没有则执行 §0.1 |
+| docker | 有版本号 + `Docker Compose version v2+` | 没有则执行 §1.1 |
+| git | 有版本号 | 没有则执行 §1.1 |
 
-### 0.1 装 Docker + git（缺哪个装哪个）
+### 1.1 装 Docker + git（缺哪个装哪个）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WinnieHan-root/product360/main/scripts/server-bootstrap.sh -o /tmp/b.sh
@@ -40,9 +55,9 @@ bash /tmp/b.sh
 docker --version && docker compose version && git --version
 ```
 
-**期望**：三行版本号。若 `curl` 就失败（服务器出不了网，见 §0.2）。
+**期望**：三行版本号。若 `curl` 就失败（服务器出不了网，见 §1.2）。
 
-### 0.2 出网能力检查
+### 1.2 出网能力检查
 
 ```bash
 curl -sI -m 10 https://github.com | head -1
@@ -52,9 +67,9 @@ curl -sI -m 10 https://registry.npmmirror.com | head -1
 **期望**：两条都返回 `HTTP/... 200` 或 `301`。
 
 - 只有 github 通 → 构建时把 `NPM_REGISTRY` 设成 `https://registry.npmjs.org`
-- 两个都不通 → **改用离线包**：本地 `pnpm deploy:pack` 生成 tar，用 JumpServer 的**文件上传**功能传到 `/opt/`，再 `tar -xzf`（跳过后面的 `git clone`）
+- 两个都不通 → **改用离线包**：本地 `pnpm deploy:pack` 生成 tar，用 JumpServer 的**文件上传**功能传到 `$(dirname "$APP")`，再 `tar -xzf`（跳过后面的 `git clone`）
 
-### 0.3 没有 root / sudo
+### 1.3 没有 root / sudo
 
 全程用当前用户，但需要能写 `/opt`：
 
@@ -62,16 +77,15 @@ curl -sI -m 10 https://registry.npmmirror.com | head -1
 id && ls -ld /opt
 ```
 
-写不进去就换目录：把下文所有 `/opt/product360` 换成 `~/product360`，端口 80 也需要 root 才能绑（此时把 `HTTP_PORT` 改成 `8080`，用 `http://IP:8080` 验收）。
+写不进去就换目录：`export APP=~/product360`，端口 80 也需要 root 才能绑（此时把 `HTTP_PORT` 改成 `8080`，用 `http://IP:8080` 验收）。
 
 ---
 
-## 1. 取代码
+## 2. 取代码
 
 ```bash
-cd /opt
-git clone https://github.com/WinnieHan-root/product360.git product360
-cd /opt/product360 && git log --oneline -3 && ls deploy scripts
+git clone https://github.com/WinnieHan-root/product360.git "$APP"
+cd "$APP" && git log --oneline -1 && ls deploy scripts
 ```
 
 **期望**：打印最近 3 条提交（最新应为 `docs: 新增 README...` 之后的提交），并列出 `deploy/`（4 个 Dockerfile/配置 + nginx 目录）与 `scripts/`（4 个 .sh）。
@@ -82,14 +96,14 @@ cd /opt/product360 && git log --oneline -3 && ls deploy scripts
 |---|---|
 | `Could not resolve host` / 超时 | 服务器无外网 → 走离线包（§0.2） |
 | `Repository not found` | 仓库转 private 了 → 配 deploy key（`docs/deploy-aliyun.md` §11.2） |
-| 目录已存在且非空 | `rm -rf /opt/product360` 后重来（确认没有 `.env` 要先备份） |
+| 目录已存在且非空 | `rm -rf "$APP"` 后重来（确认没有 `.env` 要先备份） |
 
 ---
 
-## 2. 生成 `deploy/.env`（不用 vi）
+## 3. 生成 `deploy/.env`（不用 vi）
 
 ```bash
-cd /opt/product360
+cd "$APP"
 PUBIP=$(curl -s -m 5 ifconfig.me || curl -s -m 5 https://api.ipify.org)
 PGPASS=$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)
 JWT=$(openssl rand -hex 32)
@@ -120,10 +134,10 @@ echo "===== deploy/.env ====="; cat deploy/.env
 
 ---
 
-## 3. 构建镜像（3–6 分钟，最慢的一步）
+## 4. 构建镜像（3–6 分钟，最慢的一步）
 
 ```bash
-cd /opt/product360
+cd "$APP"
 docker compose -f deploy/docker-compose.prod.yml build
 ```
 
@@ -156,10 +170,10 @@ docker images | grep product360
 
 ---
 
-## 4. 初始化数据库（只跑一次）
+## 5. 初始化数据库（只跑一次）
 
 ```bash
-cd /opt/product360
+cd "$APP"
 docker compose -f deploy/docker-compose.prod.yml --profile init run --rm db-init
 ```
 
@@ -181,15 +195,15 @@ docker compose -f deploy/docker-compose.prod.yml --profile init run --rm db-init
 |---|---|
 | 卡在 `Waiting for postgres` | `docker compose -f deploy/docker-compose.prod.yml logs postgres` 看是否密码/initdb 报错 |
 | `P1001 Can't reach database server` | `DATABASE_URL` 的 host 必须是 `postgres`（容器名），不是 `localhost` |
-| `relation "pd_spu" already exists` | 库里有旧数据，见 §8 重建 |
+| `relation "pd_spu" already exists` | 库里有旧数据，见 §9.1 重建 |
 | 表建好了但 0 行 | 检查 `docs/sample_exports` 是否存在：`ls docs/sample_exports | wc -l` 应为 18 |
 
 ---
 
-## 5. 启动
+## 6. 启动
 
 ```bash
-cd /opt/product360
+cd "$APP"
 docker compose -f deploy/docker-compose.prod.yml up -d
 sleep 20
 docker compose -f deploy/docker-compose.prod.yml ps
@@ -207,7 +221,7 @@ product360-web        Up (healthy)
 
 ---
 
-## 6. 验收（服务器本机，6 条）
+## 7. 验收（服务器本机，6 条）
 
 ```bash
 # ① 健康检查（公开）
@@ -241,7 +255,7 @@ curl -s "http://127.0.0.1/api/products?pageSize=1" -H "authorization: Bearer $TO
 
 ---
 
-## 7. 收尾（安全）
+## 8. 收尾（安全）
 
 ```bash
 # ① 确认对外只开 80（容器层不外泄 3000/5432）
@@ -263,35 +277,35 @@ p.user.update({where:{email:'admin@product360.dev'},data:{passwordHash:hashSync(
 
 ---
 
-## 8. 备用操作
+## 9. 备用操作
 
-### 8.1 重建数据库（会清空数据）
+### 9.1 重建数据库（会清空数据）
 
 ```bash
-cd /opt/product360
+cd "$APP"
 docker compose -f deploy/docker-compose.prod.yml down
 docker volume rm product360_pg
 docker compose -f deploy/docker-compose.prod.yml --profile init run --rm db-init
 docker compose -f deploy/docker-compose.prod.yml up -d
 ```
 
-### 8.2 一键发版（后续代码更新）
+### 9.2 一键发版（后续代码更新）
 
 ```bash
-cd /opt/product360 && VERSION=2026.11.03 bash scripts/release-git.sh
+cd "$APP" && VERSION=2026.11.03 bash scripts/release-git.sh
 ```
 
-（本地先 `git push`；脚本会 `git pull` → 改 tag → 重建 → 重启 → 自动跑 §6 的验收）
+（本地先 `git push`；脚本会 `git pull` → 改 tag → 重建 → 重启 → 自动跑 §7 的验收）
 
-### 8.3 只看日志
+### 9.3 只看日志
 
 ```bash
-cd /opt/product360
+cd "$APP"
 docker compose -f deploy/docker-compose.prod.yml logs --tail=80 api
 docker compose -f deploy/docker-compose.prod.yml logs --tail=40 web     # Nginx
 ```
 
-### 8.4 备份
+### 9.4 备份
 
 ```bash
 mkdir -p /opt/backup
@@ -301,12 +315,12 @@ ls -lh /opt/backup
 
 ---
 
-## 9. 需要回传给我的信息
+## 10. 需要回传给我的信息
 
 走到哪一步失败，把这些一起发我（不要发密码）：
 
 ```bash
-cd /opt/product360
+cd "$APP"
 git log --oneline -1
 docker compose -f deploy/docker-compose.prod.yml ps
 docker compose -f deploy/docker-compose.prod.yml logs --tail=60 api

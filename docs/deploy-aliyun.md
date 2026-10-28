@@ -43,6 +43,28 @@
 
 ---
 
+### 0.4 磁盘规划（有数据盘时必做）
+
+镜像 + 构建缓存约 6 GB，20 GB 的系统盘会被写满。**有独立数据盘（如挂载在 `/data`）时**：
+
+```bash
+mkdir -p /data/docker
+cat > /etc/docker/daemon.json <<'JSON'
+{
+  "data-root": "/data/docker",
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "50m", "max-file": "3" }
+}
+JSON
+systemctl restart docker
+docker info --format '{{.DockerRootDir}}'      # 期望 /data/docker
+df -h /data | tail -1
+```
+
+代码也放数据盘：`APP_DIR=/data/product360`（`scripts/server-bootstrap.sh` 会自动检测 `≥50G`
+的 `/data`、`/opt`、`/mnt` 挂载点，据此设置 `data-root` 与代码目录，可用环境变量覆盖）。
+切换数据目录后，旧目录 `/var/lib/docker` 里的镜像不再使用，确认新环境可用后再删。
+
 ## 1. 部署资源清单（仓库内新增文件）
 
 | 文件 | 作用 |
