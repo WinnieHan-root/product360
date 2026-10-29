@@ -74,6 +74,62 @@ WHERE s.ds = ${bizdate}           -- ds 是 int 类型 yyyyMMdd（去掉引号�
 2. **字段映射**：**按列名映射，不要按顺序**。原因：PG 表的第一列是 `id uuid`，SR 中间表里没有这一列；PG 侧由 `00_pg_patch.sql` 加的 `DEFAULT gen_random_uuid()` 自动填充。SR 中间表的列顺序是「业务主键在前」（DUPLICATE KEY 的要求），与 PG 的列顺序不同。
 3. **写入方式**：**全量覆盖**（Dataphin 集成任务的「先清空再写入」/ `TRUNCATE + INSERT`）。`p360_*` 用的是 **DUPLICATE KEY** 模型（不是 PRIMARY KEY），去重不靠引擎，靠每次任务前清表；如果只能 append，就在每个任务 SQL 开头加 `TRUNCATE TABLE p360_xxx;`（Dataphin 里通常配成前置语句更稳）。
 4. **任务依赖**：按第 1 节的顺序配依赖。`11_pd_spu` 和 `99_sync_batch` 是汇聚节点，必须等前面全部成功。
+5. **不要用 upsert（`ON CONFLICT DO UPDATE`）** —— 详见第 3.1 节，这条踩过坑。
+
+### 3.1 为什么不能用 upsert（实测报错）
+
+典型报错：
+
+```
+ERROR: duplicate key value violates unique constraint "pd_sku_sku_code_key"
+  详细：Key (sku_code)=(BP361-WH70BA) already exists.
+```
+
+即使配了 `ON CONFLICT DO UPDATE` 也报错，三个独立原因：
+
+1. **冲突键填成了 `id`（uuid），永远命中不了**
+   `id` 是 `DEFAULT gen_random_uuid()`，每行每次都是新 uuid → `ON CONFLICT (id)` 不成立 → 走纯 INSERT → 撞业务唯一键。
+   而同步工具只能指定**一个**冲突目标，不能同时 `(id)` 和 `(sku_code)`。
+2. **有一半的表根本没有唯一约束，upsert 在 PG 层就不合法**
+   `ON CONFLICT (col)` 要求存在匹配的唯一索引/约束，否则 PG 直接报
+   `there is no unique or exclusion constraint matching the ON CONFLICT specification`。
+
+| PG 表 | 唯一约束（可做 upsert 键） | 能否 upsert |
+|---|---|---|
+| `pd_spu` | `UNIQUE(spu_code)` | ✅ 键=`spu_code` |
+| `pd_sku` | `UNIQUE(sku_code)` | ✅ 键=`sku_code` |
+| `voc_review_day` | `UNIQUE(spu_code, review_date)` | ✅ |
+| `voc_nps_sentiment` | `UNIQUE(spu_code, sentiment)` | ✅ |
+| `voc_nps_tag` | `UNIQUE(spu_code, tag_name, sentiment)` | ✅ |
+| `voc_ticket_topic` | `UNIQUE(spu_code, topic)` | ✅ |
+| `voc_competitor` | `UNIQUE(brand_name, voc_model)` | ✅ |
+| `sal_sku_code` | **无**（只有普通索引） | ❌ 不可能 |
+| `sal_sku_day` | **无** | ❌ 不可能 |
+| `scm_stock` | **无** | ❌ 不可能 |
+| `sync_batch` | **无**（流水表，不该有） | ❌ 也不可能 |
+
+3. **upsert 删不掉源端已消失的行**
+   源端是「当日全量快照」，`p360_*` 每次 TRUNCATE 重建。upsert 只增不删，
+   源端删掉的 SKU / 评论会在 PG 里永久存在，`coverage`、`sku_count` 越算越大。
+
+**结论：正确做法是「全量覆盖」，不是 upsert。** 语义也和源端一致（快照 → 快照）。
+
+### 3.2 全量覆盖怎么配
+
+不同工具的写法：
+
+| 工具 | 配法 |
+|---|---|
+| Dataphin 数据集成（写入模式） | 目标表写入方式选「**覆盖 / replace**」，或勾选「写入前清空目标表」 |
+| Dlink / Dinky（PostgreSQL sink） | `writeMode = replace`（不要用 `upsert`）；若只支持 `insert`，配 `preSql` |
+| DataX | `postSql` 留空，`preSql` 填 `TRUNCATE TABLE pd_sku` |
+| 自写脚本 | `TRUNCATE TABLE pd_sku;` 后再批量 INSERT |
+
+> **顺序很关键**：先同步 10 张业务表，**最后同步 `sync_batch`**。
+> 因为页面 `asOf` / `delayed` 只看 `sync_batch`——把它放在最后，
+> 就能保证「批次表被更新」= 「前面所有表都已成功」，中途失败时页面不会误报数据新鲜。
+>
+> 如果工具支持事务，把 `TRUNCATE + INSERT` 包在一个事务里更好（避免清空后写入失败导致页面空白）。
 
 ---
 
