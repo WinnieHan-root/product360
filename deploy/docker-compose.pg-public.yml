@@ -1,0 +1,38 @@
+# 可选覆盖文件：把 PostgreSQL 发布到公网（供外部同步程序直连 5432）
+#
+# ⚠️ 与 deploy/docker-compose.pg-tunnel.yml **二选一**，不能同时叠加（同一个宿主机端口）。
+#
+# 前置条件（缺一不可，否则等于把数据库交出去）：
+#   1. POSTGRES_PASSWORD 已改成 ≥20 位随机串（默认值 product360 已经在公开仓库里）
+#      docker exec product360-postgres psql -U product360 -d product360 \
+#        -c "ALTER USER product360 PASSWORD '<新密码>';"
+#      并同步更新 deploy/.env 的 POSTGRES_PASSWORD / DATABASE_URL
+#   2. 阿里云安全组入方向 5432 的授权对象填**同步方出口 IP /32**，不要 0.0.0.0/0
+#      （Docker publish 绕过 ufw，安全组是唯一管控点，见 docs/network-ports.md §1.3）
+#   3. 确认容器内认证方式为 scram-sha-256：
+#      docker exec product360-postgres psql -U product360 -c "show password_encryption;"
+#
+# 使用：
+#   cd /data/product360
+#   docker compose -f deploy/docker-compose.prod.yml -f deploy/docker-compose.pg-public.yml up -d
+#   docker ps --format '{{.Names}}\t{{.Ports}}' | grep postgres
+#     → 期望 0.0.0.0:5432->5432/tcp
+#
+# 外部连接串（密码 = deploy/.env 的 POSTGRES_PASSWORD）：
+#   在容器/客户端里执行：
+#     export PGPASSWORD='<新密码>'
+#     psql -h <ECS公网IP> -p 5432 -U product360 -d product360 -c "select count(*) from pd_spu;"
+#   在 JDBC / Dataphin 数据源里填：
+#     jdbc:postgresql://<ECS公网IP>:5432/product360
+#
+# 撤销（回到只 expose、不对外）：
+#   docker compose -f deploy/docker-compose.prod.yml up -d
+#   # 或 docker compose -f deploy/docker-compose.prod.yml -f deploy/docker-compose.pg-public.yml down
+#
+# 建议：公网直连没有 TLS，商品/销量/评论数据与密码之外的内容都是明文。
+#      若同步程序与 ECS 同 region，优先用**私网 IP**（流量不出 VPC，免费且延迟低）；
+#      若必须走公网，长期方案是配 ssl=on + 自签证书 + 客户端 sslmode=require。
+services:
+  postgres:
+    ports:
+      - "5432:5432"

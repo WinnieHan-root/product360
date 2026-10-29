@@ -14,7 +14,7 @@
 | 1 | TCP | **80** | `0.0.0.0/0` | Web 前端 + `/api` 接口（Nginx 反代） | **必需** | 唯一对外业务入口 |
 | 2 | TCP | **22** | JumpServer 出口 IP / 运维固定 IP（可多个） | SSH 运维、`git pull`、发版脚本 | **必需** | **禁止 0.0.0.0/0** |
 | 3 | TCP | 443 | `0.0.0.0/0` | 后续 HTTPS（配域名 + 证书时） | 暂不需要 | 现在不申请，等上域名时一并开 |
-| 4 | TCP | 5432 | 固定同步机出口 IP（尽量 /32） | 直连 PostgreSQL 写入 | **不推荐** | 见 §2，优先用 SSH 隧道替代 |
+| 4 | TCP | 5432 | **固定同步机出口 IP（尽量 /32）** | 直连 PostgreSQL 写入 | 按需 | 已提供 `deploy/docker-compose.pg-public.yml`；**禁止 0.0.0.0/0**，见 §2 方案 B |
 
 ### 1.2 出方向（ECS → 外网，阿里云默认全通，一般无需申请）
 
@@ -29,7 +29,7 @@
 | 端口 | 服务 | 原因 |
 |---|---|---|
 | 3000 | NestJS API | 只经 Nginx `/api` 反代；容器内 `expose` 即可 |
-| 5432 | PostgreSQL | 见 §2，改为回环发布 + 隧道 |
+| 5432 | PostgreSQL | 默认不开放：需显式叠加 `-f deploy/docker-compose.pg-public.yml` 才会发布到宿主机 |
 | 5173 | Vite dev server | 仅本地开发使用，生产无此进程 |
 | 8080 | 本地验证端口 | 生产用 `HTTP_PORT=80` |
 | 2375 / 2376 | Docker API | 开=直接把 root 交给公网 |
@@ -69,23 +69,31 @@ psql "postgresql://product360:<密码>@127.0.0.1:15432/product360" -c "select co
 - 缺点：同步任务需要保持 SSH 长连接（`autossh` / systemd 可托管）
 - 安全组申请：**只需第 2 条（22，限 IP）**
 
-### 方案 B：公网直连 5432（仅在确有硬需求时）
+### 方案 B：公网直连 5432
 
-需要同时满足：
+仓库已内置覆盖文件 `deploy/docker-compose.pg-public.yml`（把 postgres 发布到 `0.0.0.0:5432`）：
+
+```bash
+cd /data/product360
+docker compose -f deploy/docker-compose.prod.yml -f deploy/docker-compose.pg-public.yml up -d
+docker ps --format '{{.Names}}\t{{.Ports}}' | grep postgres   # 期望 0.0.0.0:5432->5432/tcp
+```
+
+必须同时满足：
 
 | 要求 | 做法 |
 |---|---|
-| 源 IP 白名单 | 安全组授权对象填同步机**出口 IP /32**，不要 `0.0.0.0/0` |
-| compose 发布端口 | 加 `ports: ["5432:5432"]`（**不要**绑 `0.0.0.0` 到无白名单环境） |
-| 强密码 | `POSTGRES_PASSWORD` ≥ 24 位随机（`openssl rand -base64 32`） |
-| 认证方式 | PG16 默认 `scram-sha-256`，确认 `password_encryption=scram-sha-256` |
-| 传输加密 | 配 `ssl=on` + 自签证书，客户端 `sslmode=require`；否则密码与数据明文过公网 |
-| 监控 | 开启 PG 日志审计，异常连接告警 |
+| **强密码（硬前置）** | `POSTGRES_USER` 的密码不能是初始值 `product360`（已在公开仓库）→ 先 `ALTER USER` 改 24 位随机，再同步改 `deploy/.env` 的 `POSTGRES_PASSWORD` / `DATABASE_URL`，最后 `up -d --no-deps --force-recreate api` |
+| 源 IP 白名单 | 安全组授权对象填同步机**出口 IP /32**，不要 `0.0.0.0/0`（Docker publish 绕过 ufw，安全组是唯一管控） |
+| 发布范围 | 若无白名单环境，改用 `"127.0.0.1:5432:5432"`（即方案 A 的覆盖文件） |
+| 认证方式 | PG16 默认 `scram-sha-256`：`docker exec product360-postgres psql -U product360 -c "show password_encryption;"` |
+| 传输加密 | 公网直连默认**无 TLS**（数据明文）。长期：配 `ssl=on` + 自签证书 + 客户端 `sslmode=require` |
+| 监控 | 开 PG 日志审计，异常连接告警 |
 
 ```bash
 # 服务器：确认容器内认证与加密
 docker exec product360-postgres psql -U product360 -c "show password_encryption;"      # scram-sha-256
-docker exec product360-postgres psql -U product360 -c "show ssl;"                      # on（若已配证书）
+docker exec product360-postgres psql -U product360 -c "show ssl;"                      # off（未配证书时）
 ```
 
 > 风险提示：5432 对公网暴露是最常见的入侵面之一（暴力破解 + PG 提权漏洞）。
@@ -134,7 +142,12 @@ docker run --rm --network product360_default \
 入方向规则：
   1) TCP 80   源 0.0.0.0/0            —— 业务 Web/API 访问（必需）
   2) TCP 22   源 <JumpServer出口IP>/32 —— SSH 运维与发版（必需，禁止全网）
+  3) TCP 5432 源 <同步机出口IP>/32     —— 数据同步直连 PostgreSQL（禁止 0.0.0.0/0）
 
-暂不申请：443（待域名备案/HTTPS 时另提）、5432（采用 SSH 隧道方案，不暴露公网）
+暂不申请：443（待域名备案/HTTPS 时另提）
 出方向：保持默认全通（apt / 容器镜像 / npm 源 / GitHub）
 ```
+
+> 如果同步机与 ECS **同一 region/VPC**：5432 的授权对象改填**私网网段**（如 `172.16.0.0/12`），
+> 连接地址用 ECS 私网 IP，流量不出 VPC（免费、低延迟、不经公网）。
+> 这种情况下可以**不申请公网 5432**。
