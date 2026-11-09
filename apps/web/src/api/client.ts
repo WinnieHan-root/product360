@@ -3,6 +3,7 @@ import type {
   CategoryTreeResponse,
   ChannelsResponse,
   ExternalResponse,
+  ListingsResponse,
   MetaItem,
   Overview,
   ProductListResponse,
@@ -67,6 +68,14 @@ export async function fetchChannels(spu: string, days = 30) {
   const { data } = await api.get<ChannelsResponse>(
     `/products/${encodeURIComponent(spu)}/channels`,
     { params: { days } },
+  );
+  return data;
+}
+
+export async function fetchListings(spu: string, status = "online") {
+  const { data } = await api.get<ListingsResponse>(
+    `/products/${encodeURIComponent(spu)}/channels/listings`,
+    { params: { status } },
   );
   return data;
 }

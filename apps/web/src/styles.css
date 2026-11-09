@@ -610,6 +610,118 @@ body,
   background: #d0d5dd;
 }
 
+/* 内容完整度：5 个小方块，实心=已具备，空心=缺失 */
+.content-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  flex: none;
+}
+
+.content-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  display: block;
+}
+
+.content-dots i.on {
+  background: var(--brand);
+}
+
+.content-dots i.off {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #d0d5dd;
+}
+
+/* 上架矩阵：行=指标，列=渠道，表头首列 sticky */
+.listing-matrix .ant-table-thead > tr > th,
+.listing-matrix .ant-table-tbody > tr > td {
+  padding: 6px 10px !important;
+}
+
+.listing-matrix .matrix-label {
+  color: var(--text-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.listing-matrix .matrix-cell {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.listing-matrix .matrix-channel {
+  display: block;
+  font-weight: 600;
+  color: var(--text-1);
+  /* aliexpress_pop_choice 这类长渠道名要能折行，否则单列吃掉 220px+ */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.listing-matrix .matrix-channel small {
+  display: block;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* 矩阵底部的覆盖范围声明 */
+.matrix-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: center;
+  padding: 8px 12px 2px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* listing 展开行：描述 + 元信息 + 主图 */
+.listing-detail {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 4px 0 6px;
+}
+
+.listing-detail__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.listing-detail__text p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+
+.listing-detail__meta {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 4px 20px;
+  font-size: 12px;
+}
+
+.listing-detail__img {
+  flex: none;
+  width: 104px;
+  height: 104px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.muted {
+  color: var(--text-3);
+}
+
 /* ---------- 通用两列（外部页 14/10、12/12） ---------- */
 .grid-2col {
   display: grid;

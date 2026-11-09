@@ -193,6 +193,69 @@ export interface ChannelsResponse {
   };
 }
 
+/** P2-4：在线 listing 的一条明细（源表 ads_sal_sku_online_listing_df） */
+export interface ListingItem {
+  channel: string;
+  site: string | null;
+  shopCode: string | null;
+  msku: string;
+  externalId: string | null;
+  externalIdType: string | null;
+  parentExternalId: string | null;
+  skuCode: string | null;
+  title: DataField<string>;
+  descriptionSummary: DataField<string>;
+  mainImageUrl: DataField<string>;
+  /** 源端已归一：online / offline / draft / deleted */
+  listingStatus: string | null;
+  /** 源端原值，用于解释归一结果（如「下架|正常」「active」） */
+  listingStatusRaw: string | null;
+  operatorName: string | null;
+  currencyCode: string | null;
+  listPrice: DataField<number>;
+  salePrice: DataField<number>;
+  rating: number | null;
+  /** 内容完整度 0~5，源端已算好，不重算 */
+  contentItemCnt: number | null;
+  contentFlags: {
+    title: boolean;
+    mainImage: boolean;
+    description: boolean;
+    price: boolean;
+    status: boolean;
+  };
+  productLink: string | null;
+  srcTable: string | null;
+}
+
+/** P2-4：按渠道聚合，矩阵的列数据 */
+export interface ListingChannelStat {
+  channel: string;
+  listingCount: number;
+  shops: number;
+  sites: string[];
+  onlineCount: number;
+  fullContentCount: number;
+  contentAvg: number | null;
+  missing: { title: number; image: number; description: number; price: number };
+}
+
+export interface ListingsResponse {
+  spuCode: string;
+  status: string;
+  counts: { total: number; online: number; offline: number; draft: number; deleted: number };
+  channels: ListingChannelStat[];
+  items: ListingItem[];
+  coverage: {
+    channels: string[];
+    srcTables: string[];
+    note: string;
+    status: DataStatus;
+    source: string;
+    asOf: string | null;
+  };
+}
+
 export interface ExternalResponse {
   window: { days: number; from: string; to: string };
   review: {

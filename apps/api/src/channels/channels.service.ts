@@ -1,18 +1,20 @@
 import { Injectable } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { SOURCE_TABLE_LABEL, type DataStatus } from "@product360/shared";
 import { AccessService } from "../common/access.service";
 import type { AuthUser } from "../common/auth-user";
-import { commercial, dayKey, field, round } from "../common/field";
+import { commercial, dayKey, field, num, round } from "../common/field";
 import { PrismaService } from "../common/prisma.service";
 import { SourceService, type SourceStamp } from "../common/source.service";
 
 const SALES_TABLE = "dws_sal_sku_statistics_td_df";
 const CODE_TABLE = "dim_sal_sku_info_df";
 const STOCK_TABLE = "dwb_scm_stock_channel_df";
+const LISTING_TABLE = "ads_sal_sku_online_listing_df";
 const SALES_SOURCE = SOURCE_TABLE_LABEL[SALES_TABLE];
 const CODE_SOURCE = SOURCE_TABLE_LABEL[CODE_TABLE];
 const STOCK_SOURCE = SOURCE_TABLE_LABEL[STOCK_TABLE];
+const LISTING_SOURCE = SOURCE_TABLE_LABEL[LISTING_TABLE];
 
 const MIN_DAYS = 7;
 const MAX_DAYS = 90;
@@ -52,6 +54,35 @@ interface DayRow {
   day: Date;
   saleQty: number;
   salesAmountUsd: Prisma.Decimal | null;
+}
+
+interface ListingRow {
+  channel: string;
+  site: string | null;
+  shopCode: string | null;
+  msku: string;
+  externalId: string | null;
+  externalIdType: string | null;
+  parentExternalId: string | null;
+  skuCode: string | null;
+  title: string | null;
+  descriptionSummary: string | null;
+  mainImageUrl: string | null;
+  listingStatus: string | null;
+  listingStatusRaw: string | null;
+  operatorName: string | null;
+  currencyCode: string | null;
+  listPrice: Prisma.Decimal | null;
+  salePrice: Prisma.Decimal | null;
+  rating: Prisma.Decimal | null;
+  contentItemCnt: number | null;
+  hasTitle: number | null;
+  hasMainImage: number | null;
+  hasDescription: number | null;
+  hasPrice: number | null;
+  hasStatus: number | null;
+  productLink: string | null;
+  srcTable: string | null;
 }
 
 interface RowState {
@@ -100,6 +131,212 @@ export class ChannelsService {
     at: Date | string | null,
   ) {
     return field(this.sources.resolve(status, stamp), source, at, value);
+  }
+
+  /**
+   * 在线 listing 明细（P2-4）。数据源是 ads_sal_sku_online_listing_df，
+   * 与上面 get() 用的 sal_sku_code / sal_sku_day 是两套口径：
+   * 这里回答「渠道上架了什么、内容是否完整」，不涉及销量与库存。
+   *
+   * 默认只看 online：offline 里 421/749 行缺描述、160 行缺主图，
+   * 与在线商品混在一起看，完整度列会变成噪声（见 p2-enhancement-design §4.3）。
+   */
+  async listings(spu: string, user: AuthUser, status: string = "online") {
+    const spuCode = await this.access.requireProduct(spu, user);
+    const stamp = await this.sources.stamp(LISTING_TABLE);
+
+    const filter = status === "all" ? Prisma.sql`TRUE` : Prisma.sql`l.listing_status = ${status}`;
+
+    const rows = await this.prisma.$queryRaw<ListingRow[]>`
+      SELECT l.channel,
+             l.site,
+             l.shop_code AS "shopCode",
+             l.msku,
+             l.external_id AS "externalId",
+             l.external_id_type AS "externalIdType",
+             l.parent_external_id AS "parentExternalId",
+             l.sku_code AS "skuCode",
+             l.title,
+             l.description_summary AS "descriptionSummary",
+             l.main_image_url AS "mainImageUrl",
+             l.listing_status AS "listingStatus",
+             l.listing_status_raw AS "listingStatusRaw",
+             l.operator_name AS "operatorName",
+             l.currency_code AS "currencyCode",
+             l.list_price AS "listPrice",
+             l.sale_price AS "salePrice",
+             l.rating,
+             l.content_item_cnt AS "contentItemCnt",
+             l.has_title AS "hasTitle",
+             l.has_main_image AS "hasMainImage",
+             l.has_description AS "hasDescription",
+             l.has_price AS "hasPrice",
+             l.has_status AS "hasStatus",
+             l.product_link AS "productLink",
+             l.src_table AS "srcTable"
+      FROM sal_sku_online_listing l
+      WHERE l.spu_code = ${spuCode} AND ${filter}
+      ORDER BY l.channel, l.site, l.shop_code, l.msku
+    `;
+
+    // 全量（不受 status 过滤）的状态计数，用于 Segmented 上的徽标
+    const counts = await this.prisma.$queryRaw<{ status: string | null; count: number }[]>`
+      SELECT listing_status AS status, count(*)::int AS count
+      FROM sal_sku_online_listing
+      WHERE spu_code = ${spuCode}
+      GROUP BY 1
+    `;
+    const countOf = (key: string) => counts.find((row) => row.status === key)?.count ?? 0;
+    const total = counts.reduce((sum, row) => sum + row.count, 0);
+
+    // 按渠道聚合：渠道有多少条 listing、覆盖哪些站点、内容满分几条
+    const byChannel = new Map<
+      string,
+      {
+        channel: string;
+        listingCount: number;
+        sites: string[];
+        shops: number;
+        onlineCount: number;
+        fullContentCount: number;
+        contentSum: number;
+        contentRows: number;
+        missing: { title: number; image: number; description: number; price: number };
+      }
+    >();
+    for (const row of rows) {
+      const item =
+        byChannel.get(row.channel) ??
+        {
+          channel: row.channel,
+          listingCount: 0,
+          sites: [],
+          shops: 0,
+          onlineCount: 0,
+          fullContentCount: 0,
+          contentSum: 0,
+          contentRows: 0,
+          missing: { title: 0, image: 0, description: 0, price: 0 },
+        };
+      item.listingCount += 1;
+      if (row.site && !item.sites.includes(row.site)) item.sites.push(row.site);
+      if (row.listingStatus === "online") item.onlineCount += 1;
+      if (row.contentItemCnt != null) {
+        item.contentSum += row.contentItemCnt;
+        item.contentRows += 1;
+        if (row.contentItemCnt >= 5) item.fullContentCount += 1;
+      }
+      if (!row.hasTitle) item.missing.title += 1;
+      if (!row.hasMainImage) item.missing.image += 1;
+      if (!row.hasDescription) item.missing.description += 1;
+      if (!row.hasPrice) item.missing.price += 1;
+      byChannel.set(row.channel, item);
+    }
+    const shopsByChannel = new Map<string, Set<string>>();
+    for (const row of rows) {
+      if (!row.shopCode) continue;
+      const set = shopsByChannel.get(row.channel) ?? new Set<string>();
+      set.add(row.shopCode);
+      shopsByChannel.set(row.channel, set);
+    }
+
+    const channels = [...byChannel.values()]
+      .map((item) => ({
+        channel: item.channel,
+        listingCount: item.listingCount,
+        shops: shopsByChannel.get(item.channel)?.size ?? 0,
+        sites: item.sites.sort(),
+        onlineCount: item.onlineCount,
+        fullContentCount: item.fullContentCount,
+        /** 平均内容完整度（0~5），无数据时 null——不补 0 */
+        contentAvg: item.contentRows ? round(item.contentSum / item.contentRows, 1) : null,
+        missing: item.missing,
+      }))
+      .sort((a, b) => b.listingCount - a.listingCount || a.channel.localeCompare(b.channel));
+
+    const items = rows.map((row) => ({
+      channel: row.channel,
+      site: row.site,
+      shopCode: row.shopCode,
+      msku: row.msku,
+      externalId: row.externalId,
+      externalIdType: row.externalIdType,
+      parentExternalId: row.parentExternalId,
+      skuCode: row.skuCode,
+      // 源端为空就是空，不拿 spuName 之类去补——见五态规则
+      title: field<string>(
+        this.sources.resolve(row.title ? "ready" : "empty", stamp),
+        LISTING_SOURCE,
+        stamp.asOf,
+        row.title,
+      ),
+      descriptionSummary: field<string>(
+        this.sources.resolve(row.descriptionSummary ? "ready" : "empty", stamp),
+        LISTING_SOURCE,
+        stamp.asOf,
+        row.descriptionSummary,
+      ),
+      mainImageUrl: field<string>(
+        this.sources.resolve(row.mainImageUrl ? "ready" : "empty", stamp),
+        LISTING_SOURCE,
+        stamp.asOf,
+        row.mainImageUrl,
+      ),
+      listingStatus: row.listingStatus,
+      /** 源端原值（「下架|正常」「AVAILABLE_FOR_SALE」等），用于解释归一结果 */
+      listingStatusRaw: row.listingStatusRaw,
+      operatorName: row.operatorName,
+      currencyCode: row.currencyCode,
+      listPrice: commercial(
+        user,
+        row.listPrice == null ? "empty" : "ready",
+        LISTING_SOURCE,
+        stamp.asOf,
+        num(row.listPrice),
+      ),
+      salePrice: commercial(
+        user,
+        row.salePrice == null ? "empty" : "ready",
+        LISTING_SOURCE,
+        stamp.asOf,
+        num(row.salePrice),
+      ),
+      rating: row.rating == null ? null : Number(row.rating),
+      /** 内容完整度 0~5（5 项标记之和，源端已算好，不重算） */
+      contentItemCnt: row.contentItemCnt,
+      contentFlags: {
+        title: row.hasTitle === 1,
+        mainImage: row.hasMainImage === 1,
+        description: row.hasDescription === 1,
+        price: row.hasPrice === 1,
+        status: row.hasStatus === 1,
+      },
+      productLink: row.productLink,
+      srcTable: row.srcTable,
+    }));
+
+    return {
+      spuCode,
+      status,
+      counts: {
+        total,
+        online: countOf("online"),
+        offline: countOf("offline"),
+        draft: countOf("draft"),
+        deleted: countOf("deleted"),
+      },
+      channels,
+      items,
+      /** 数据覆盖范围必须显式声明：本表只覆盖 amazon / aliexpress 系，不是真「全渠道」 */
+      coverage: {
+        channels: [...new Set(rows.map((row) => row.channel))].sort(),
+        srcTables: [...new Set(rows.map((row) => row.srcTable).filter((v): v is string => !!v))].sort(),
+        note: "覆盖 Amazon、Shopify、Shopee、Lazada、Mercado Libre、Shein、AliExpress 等渠道，仍非公司全部销售渠道",
+        status: this.sources.resolve(items.length ? "ready" : "empty", stamp),
+        source: LISTING_SOURCE,
+        asOf: stamp.asOf,
+      },
+    };
   }
 
   async get(spu: string, user: AuthUser, days = DEFAULT_DAYS) {
