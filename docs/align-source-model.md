@@ -158,7 +158,7 @@ GET /api/meta/categories/tree → { levels, total, tree: [CategoryNode] } // 四
 ### 4.3 商品列表
 
 ```
-GET /api/products?q=&brand=&category=&market=&state=&sort=coverage&page=1&pageSize=20
+GET /api/products?q=&brand=&category=&market=&state=&lifecycle=&sort=coverage&page=1&pageSize=20
 ```
 
 `q`：精确优先命中 `spu_code` / `sku_code` / `asin` / 平台 SKU（`sal_sku_code.sale_sku_code`）；否则 `spu_name` / `spu_name_en` 模糊（`ILIKE %q%`）。
@@ -167,6 +167,7 @@ GET /api/products?q=&brand=&category=&market=&state=&sort=coverage&page=1&pageSi
 `category`：类目路径，`/` 分隔、1~4 段，第 N 段命中第 N 级类目（`COALESCE(编码, 名称)`）。
 每段都 AND 上级，**天然防跳级**：`category=CA002003`（把二级编码塞进第一段）返回 0 条，不会误命中。
 单段时与旧的一级类目筛选完全等价，既有链接无需迁移。超过 4 段只取前 4 段。
+`lifecycle`：运营生命周期，四值之一 `selling` / `prelaunch` / `clearance` / `retired`。见 §4.3.1。
 `sort`：`coverage`(默认) / `updateTime` / `sales30d` / `reviewCount`，均倒序，次级排序 `spuCode asc`。
 
 ```json
@@ -189,6 +190,8 @@ GET /api/products?q=&brand=&category=&market=&state=&sort=coverage&page=1&pageSi
     "reviewCount": 12,
     "coverage": 4,
     "coverageDimensions": ["sku", "channel", "sales", "voc"],
+    "lifecycleStage": "selling",
+    "lifecycleStageLabel": "在售",
     "updateTime": "2026-10-26T00:00:00.000Z"
   }],
   "total": 1000,
@@ -198,11 +201,41 @@ GET /api/products?q=&brand=&category=&market=&state=&sort=coverage&page=1&pageSi
   "breakdown": {
     "state": [{ "code": "0", "label": "开发中", "count": 154 }, { "code": "1", "label": "待上架", "count": 270 }],
     "coverage": [{ "level": 0, "count": 571 }, { "level": 1, "count": 253 }],
-    "markets": [{ "code": "US", "count": 93 }, { "code": "CA", "count": 27 }]
+    "markets": [{ "code": "US", "count": 93 }, { "code": "CA", "count": 27 }],
+    "lifecycle": [
+      { "key": "selling", "label": "在售", "count": 342 },
+      { "key": "prelaunch", "label": "未上市", "count": 424 },
+      { "key": "clearance", "label": "清仓中", "count": 14 },
+      { "key": "retired", "label": "已退市", "count": 287 }
+    ]
   },
   "scope": { "mode": "all|brand|category|mixed|none", "brands": ["Momcozy"], "categories": [] }
 }
 ```
+
+### 4.3.1 生命周期口径
+
+`pd_spu.lifecycle_stage` 是**加载期算好的列**（`loader.ts` 的 `buildAggregates()` / `sql/sync/90_aggregates.sql`
+/ `sql/dataphin/11_pd_spu.sql` 三处同语义），请求期直接读列，不跨表推导。判定优先级从上到下、第一命中即定级：
+
+| 阶段 | key | 判定 | 实测（1067 SPU） |
+|---|---|---|---|
+| 已退市 | `retired` | `spu_state_desc ∈ {已下架, 已取消}` | 287 |
+| 清仓中 | `clearance` | 存在 `pd_sku.sku_state_desc = '清仓中'` 的 SKU | 14 |
+| 未上市 | `prelaunch` | `spu_state_desc ∈ {开发中, 待上架}` | 424 |
+| 在售 | `selling` | 其余（`可销售`） | 342 |
+
+四桶互斥且合计 1067 = 全量，**没有 NULL 兜底路径**（源表 `spu_state_desc` 为空的行在 loader 里已归入「待上架」）。
+
+**刻意不引入 `listing_time`**：生产库覆盖率只有 76%（814/1067），空值只说明历史没登记上架时间，
+不代表「未上市」。拿它做 OR 条件会把 200+ 个在售商品误标成未上市。
+
+**已知取舍**：19 个 SPU 主数据已「已下架」但仍有 SKU 处于「清仓中」，按优先级归入「已退市」（主数据终态优先）。
+如果运营侧希望这类商品显示「清仓中」（提示还有货要清），把 `retired` 和 `clearance` 两条换个顺序即可，
+改三处 SQL/TS 的 CASE 顺序 + `LIFECYCLE_STAGES` 的展示顺序。
+
+`breakdown.lifecycle` 固定返回四个桶（缺的补 0），**不受 `lifecycle` 自身筛选收窄以外的例外** ——
+即选了「清仓中」后，这四项会变成 14/0/0/0，与 `state`/`coverage` 的联动行为一致（只有 `markets` 是例外，见 §4.3）。
 
 - `pageSize` 只接受 20 / 50 / 100，其它值回落 20；`page` 最小 1。越界参数**回落默认值**，不返回 400。
 - `sales30dUsd` 是商业敏感字段：`canViewCommercial=false` 时为 `{ status: "no_access", source: null, asOf: null, value: null }`（列表接口同样处理）。

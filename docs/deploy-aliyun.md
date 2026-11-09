@@ -569,6 +569,31 @@ SR 侧 SQL 与清洗口径见 [`sql/dataphin/README.md`](../sql/dataphin/README.
 
 如果想让本地等价性验证覆盖新表，还要改 `sql/sync/`（PG 方言版 + `gen_stage.py` + `verify-sync-sql.sh`），详见该目录 README。
 
+### 13.3.1 给**已有**表加列（比新增表更容易踩）
+
+`01_sr_tables.sql` 用的是 `CREATE TABLE IF NOT EXISTS`，**表已存在时它整条语句被跳过，不会补列**。
+所以给已上线的 `p360_*` 表加字段，`CREATE TABLE` 改了也没用，必须显式 `ALTER`：
+
+```sql
+-- 例：P2-3 给 p360_pd_spu 加生命周期列
+ALTER TABLE p360_pd_spu
+  ADD COLUMN lifecycle_stage varchar(16)
+  COMMENT 'selling/prelaunch/clearance/retired，加载期算好'
+  AFTER rating_avg;
+```
+
+漏跑这一步的典型症状：清洗任务 `11_pd_spu.sql` 报
+`Insert has more expressions than target columns`（SELECT 比表多一列）。
+
+配套要改的地方（`00_pg_patch.sql` **不用改**，它只管 `id` 默认值）：
+
+1. `01_sr_tables.sql` — 建表语句加列 **+** 补一条注释掉的 `ALTER`（新环境靠 CREATE，老环境靠 ALTER）
+2. `11_pd_spu.sql` — SELECT 加列（**顺序必须与 DDL 一致**）
+3. `schema.prisma` — model 加字段（`prisma db push` 会自动 `ALTER TABLE` PG 侧）
+4. `loader.ts` 的 `buildAggregates()` + `sql/sync/90_aggregates.sql` — 派生列的计算 SQL（两处同语义）
+5. Dataphin 集成任务 — 如果是「按列名映射」，要把新列加进映射列表；如果是 `SELECT *` 会错位，**不要用 `SELECT *`**
+6. `prisma db push` 会自动建索引（`@@index`），但 PG 侧生产库要靠部署时跑 `db push`，不是手工 ALTER
+
 ### 13.4 同步后验收
 
 ```bash
