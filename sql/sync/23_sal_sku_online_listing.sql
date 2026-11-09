@@ -3,7 +3,10 @@
 -- =============================================================================
 -- 清洗规则（对应 loader.ts: loadSalSkuOnlineListing）：
 --   1. channel / msku / listing_status 任一为空 → 丢弃（业务键 + 状态都不可缺）
---   2. 去重键 = channel | site | shop_code | msku，同键保留最后一行
+--   2. 去重键 = channel | site | shop_code | msku | external_id，同键保留最后一行
+--      必须带 external_id：同一内部 SKU 在 Shopify 会被重复建成多个商品（各自独立
+--      product id），只按前四列去重会丢掉 329/2000 行（实测）。加 external_id 后
+--      2000 行 100% 唯一；同时 amazon 侧一个 ASIN 挂多个 msku 变体也能靠 msku 区分。
 --      （loader 是 Map 覆盖；本文件用 _row_no DESC 复现同一语义）
 --   3. external_id / external_id_type / listing_status_raw / src_table 缺失 → 空串（目标列 NOT NULL）
 --      has_* / content_item_cnt 缺失 → 0（源端已算好，不重算）
@@ -52,7 +55,7 @@ WITH src AS (
   FROM stage_sal_sku_online_listing s
 ), keyed AS (
   SELECT *,
-         concat_ws('|', channel, site, shop_code, msku) AS natural_key
+         concat_ws('|', channel, site, shop_code, msku, external_id) AS natural_key
   FROM src
   WHERE channel IS NOT NULL AND msku IS NOT NULL AND listing_status IS NOT NULL
 )

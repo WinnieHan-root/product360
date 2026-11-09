@@ -4,8 +4,10 @@
 -- =============================================================================
 -- 清洗规则（对齐 loader.ts: loadSalSkuOnlineListing）：
 --   1. channel / msku / listing_status 任一为空 → 丢弃
---   2. 去重键 = channel | site | shop_code | msku（样例 1000/1000 唯一）
+--   2. 去重键 = channel | site | shop_code | msku | external_id
 --      同键多行取 ds 最新、external_id 较小的一条（确定性排序，不依赖文件顺序）
+--      必须带 external_id：同一内部 SKU 在 Shopify 会被重复建成多个商品（各有独立
+--      product id），只按前四列去重会丢掉约 16% 的行；带上后样例 2000/2000 唯一
 --   3. listing_status 为源端已归一值 online/offline/deleted；
 --      listing_status_raw 保留源端原值（「下架|正常」「AVAILABLE_FOR_SALE」等）
 --   4. has_* 为 0/1 标记；content_item_cnt 是五项之和（含恒为 1 的 has_status）
@@ -13,8 +15,12 @@
 --   5. 金额列空值保持 null；inventory_qty / rating 同理，源端为空不补 0
 --   6. 源端 pt 列是任务执行时间戳，不落库（asOf 由 ds + sync_batch 提供）
 --
--- 注意：本表当前只覆盖 amazon 与 aliexpress 两个渠道（src_table 仅两张源表）。
---       页面按「全渠道」呈现时必须标注数据覆盖范围，不能暗示已覆盖全部渠道。
+-- 注意：本表当前覆盖 amazon / shopify / shopee / lazada / mercadolibre /
+--       mercadolibre_local / shein / aliexpress / aliexpress_pop_choice / cdiscount /
+--       shoplazza 共 11 个渠道值（3 张源表：amazon / jijia / shopify），
+--       但仍不是公司全部销售渠道，页面必须标注实际覆盖范围。
+--       listing_status 实测 4 值：online / offline / deleted / draft（draft 仅 shopify，
+--       是「店铺里已建好但未发布」的商品，内容多半已填满，不能并入 offline）。
 -- =============================================================================
 
 INSERT INTO p360_sal_sku_online_listing
@@ -54,7 +60,7 @@ FROM (
   SELECT
     src.*,
     row_number() OVER (
-      PARTITION BY src.channel, src.site, src.shop_code, src.msku
+      PARTITION BY src.channel, src.site, src.shop_code, src.msku, src.external_id
       ORDER BY src.ds DESC, src.external_id
     ) AS rn
   FROM (

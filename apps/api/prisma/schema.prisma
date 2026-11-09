@@ -192,9 +192,13 @@ model SalSkuCode {
 
 /// 全渠道在线商品宽表，来源 ads_sal_sku_online_listing_df。
 /// 一行 = 一个店铺下的一个在架 listing（channel+site+shop_code+msku 唯一）。
-/// 当前只覆盖 amazon 与 aliexpress 两个渠道（源表 src_table 仅两张：dwb_sal_sku_amazon_df
-/// 与 dwb_sal_sku_jijia_listing_df），其余渠道尚无数据，不要按「全渠道」全量理解。
-/// listing_status 已归一为 online/offline/deleted，listing_status_raw 保留源端原值。
+/// 当前覆盖 11 个渠道值（amazon / shopify / shopee / lazada / mercadolibre /
+/// mercadolibre_local / shein / aliexpress / aliexpress_pop_choice / cdiscount / shoplazza），
+/// 源表 src_table 三张：dwb_sal_sku_amazon_df / dwb_sal_sku_jijia_listing_df /
+/// dwb_sal_sku_shopify_df。仍不是公司全部渠道，不要按「全渠道」全量理解。
+/// listing_status 4 值：online/offline/deleted/draft（draft 仅 shopify 草稿，内容多半已填满）；
+/// listing_status_raw 保留源端原值。
+/// 业务粒度含 external_id —— 同一 SKU 在 Shopify 会被重复建成多个商品（各自 product id）。
 model SalSkuOnlineListing {
   id                 String   @id @default(uuid())
   ds                 DateTime @db.Date

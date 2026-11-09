@@ -284,14 +284,19 @@ async function loadSalSkuOnlineListing(): Promise<LoadResult> {
 
     const site = text(get("site"));
     const shopCode = text(get("shop_code"));
-    const key = [channel, site, shopCode, msku].map((v) => v ?? "").join("|");
+    const externalId = text(get("external_id")) ?? "";
+    // 去重键含 external_id：同一个内部 SKU 在 Shopify 会被重复建成多个商品
+    // （各有独立 product id），只按 channel|site|shop|msku 去重会静默丢掉 329/2000 行。
+    // 加上 external_id 后 2000 行 100% 唯一（实测），且能同时容纳 amazon 一句 ASIN
+    // 挂多个 msku 变体的情况。
+    const key = [channel, site, shopCode, msku, externalId].map((v) => v ?? "").join("|");
     seen.set(key, {
       ds,
       channel,
       site,
       shopCode,
       msku,
-      externalId: text(get("external_id")) ?? "",
+      externalId,
       externalIdType: text(get("external_id_type")) ?? "",
       parentExternalId: text(get("parent_external_id")),
       skuCode: text(get("sku_code")),

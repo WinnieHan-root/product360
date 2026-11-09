@@ -163,9 +163,13 @@ COMMENT '商品中心 360 - 渠道外部编码（→ PG sal_sku_code）';
 -- ---------------------------------------------------------------------------
 -- 4. sal_sku_online_listing（全渠道在线商品，listing 级快照）
 -- ---------------------------------------------------------------------------
--- 当前只覆盖 amazon 与 aliexpress（源表 src_table 仅 dwb_sal_sku_amazon_df 与
--- dwb_sal_sku_jijia_listing_df）。listing_status 已归一为 online/offline/deleted，
--- listing_status_raw 保留源端原值（如「下架|正常」「AVAILABLE_FOR_SALE」）。
+-- 当前覆盖 11 个渠道值（amazon / shopify / shopee / lazada / mercadolibre /
+-- mercadolibre_local / shein / aliexpress / aliexpress_pop_choice / cdiscount /
+-- shoplazza），源表 src_table 为 dwb_sal_sku_amazon_df / dwb_sal_sku_jijia_listing_df /
+-- dwb_sal_sku_shopify_df 三张。listing_status 已归一为 online/offline/deleted/draft，
+-- listing_status_raw 保留源端原值（「下架|正常」「AVAILABLE_FOR_SALE」「active」「draft」等）。
+-- 去重键含 external_id：同一内部 SKU 在 Shopify 会被重复建成多个商品，只按
+-- channel|site|shop_code|msku 去重会丢行。
 CREATE TABLE IF NOT EXISTS p360_sal_sku_online_listing (
   channel                varchar(64)   NOT NULL,
   site                   varchar(64),
