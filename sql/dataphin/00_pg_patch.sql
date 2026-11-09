@@ -15,6 +15,7 @@
 ALTER TABLE pd_spu               ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE pd_sku               ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE sal_sku_code         ALTER COLUMN id SET DEFAULT gen_random_uuid();
+ALTER TABLE sal_sku_online_listing ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE sal_sku_day          ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE scm_stock            ALTER COLUMN id SET DEFAULT gen_random_uuid();
 ALTER TABLE voc_review_day       ALTER COLUMN id SET DEFAULT gen_random_uuid();

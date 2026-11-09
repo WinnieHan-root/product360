@@ -156,7 +156,48 @@ CREATE TABLE IF NOT EXISTS p360_sal_sku_code (
 COMMENT '商品中心 360 - 渠道外部编码（→ PG sal_sku_code）';
 
 -- ---------------------------------------------------------------------------
--- 4. sal_sku_day（销售日汇总）
+-- 4. sal_sku_online_listing（全渠道在线商品，listing 级快照）
+-- ---------------------------------------------------------------------------
+-- 当前只覆盖 amazon 与 aliexpress（源表 src_table 仅 dwb_sal_sku_amazon_df 与
+-- dwb_sal_sku_jijia_listing_df）。listing_status 已归一为 online/offline/deleted，
+-- listing_status_raw 保留源端原值（如「下架|正常」「AVAILABLE_FOR_SALE」）。
+CREATE TABLE IF NOT EXISTS p360_sal_sku_online_listing (
+  channel                varchar(64)   NOT NULL,
+  site                   varchar(64),
+  shop_code              varchar(128),
+  msku                   varchar(255)  NOT NULL,
+  ds                     date          NOT NULL,
+  external_id            varchar(128),
+  external_id_type       varchar(32),
+  parent_external_id     varchar(128),
+  sku_code               varchar(64),
+  scm_sku_code           varchar(64),
+  spu_code               varchar(64),
+  title                  string,
+  description_summary    string,
+  main_image_url         string,
+  listing_status         varchar(32),
+  listing_status_raw     varchar(64),
+  operator_name          varchar(255),
+  currency_code          varchar(16),
+  list_price             decimal(14, 4),
+  sale_price             decimal(14, 4),
+  barcode                varchar(128),
+  inventory_qty          int,
+  rating                 decimal(3, 2),
+  content_item_cnt       int,
+  has_title              int,
+  has_main_image         int,
+  has_description        int,
+  has_price              int,
+  has_status             int,
+  product_link           string,
+  src_table              varchar(128)
+) DUPLICATE KEY(channel, site, shop_code, msku)
+COMMENT '商品中心 360 - 全渠道在线商品宽表（→ PG sal_sku_online_listing）';
+
+-- ---------------------------------------------------------------------------
+-- 5. sal_sku_day（销售日汇总）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS p360_sal_sku_day (
   order_date             date          NOT NULL,
@@ -184,7 +225,7 @@ CREATE TABLE IF NOT EXISTS p360_sal_sku_day (
 COMMENT '商品中心 360 - 销售日汇总（→ PG sal_sku_day）';
 
 -- ---------------------------------------------------------------------------
--- 5. scm_stock（渠道库存）
+-- 6. scm_stock（渠道库存）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS p360_scm_stock (
   channel_code           varchar(64)   NOT NULL,
@@ -199,7 +240,7 @@ CREATE TABLE IF NOT EXISTS p360_scm_stock (
 COMMENT '商品中心 360 - 渠道库存（→ PG scm_stock）';
 
 -- ---------------------------------------------------------------------------
--- 6. voc_review_day（自有评论日汇总）
+-- 7. voc_review_day（自有评论日汇总）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS p360_voc_review_day (
   spu_code               varchar(64)   NOT NULL,
@@ -212,7 +253,7 @@ CREATE TABLE IF NOT EXISTS p360_voc_review_day (
 COMMENT '商品中心 360 - 评论日汇总（→ PG voc_review_day）';
 
 -- ---------------------------------------------------------------------------
--- 7. voc_nps_sentiment（NPS 五档情绪分布）
+-- 8. voc_nps_sentiment（NPS 五档情绪分布）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS p360_voc_nps_sentiment (
   spu_code               varchar(64)   NOT NULL,
@@ -226,7 +267,7 @@ CREATE TABLE IF NOT EXISTS p360_voc_nps_sentiment (
 COMMENT '商品中心 360 - NPS 情绪分布（→ PG voc_nps_sentiment）';
 
 -- ---------------------------------------------------------------------------
--- 8. voc_nps_tag（体验因子；nps_tag_list 数组展开后一行一个因子）
+-- 9. voc_nps_tag（体验因子；nps_tag_list 数组展开后一行一个因子）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS p360_voc_nps_tag (
   spu_code               varchar(64)   NOT NULL,
@@ -240,7 +281,7 @@ CREATE TABLE IF NOT EXISTS p360_voc_nps_tag (
 COMMENT '商品中心 360 - 体验因子（→ PG voc_nps_tag）';
 
 -- ---------------------------------------------------------------------------
--- 9. voc_ticket_topic（工单主题）
+-- 10. voc_ticket_topic（工单主题）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS p360_voc_ticket_topic (
   spu_code               varchar(64)   NOT NULL,
@@ -254,7 +295,7 @@ CREATE TABLE IF NOT EXISTS p360_voc_ticket_topic (
 COMMENT '商品中心 360 - 工单主题（→ PG voc_ticket_topic）';
 
 -- ---------------------------------------------------------------------------
--- 10. voc_competitor（竞品口碑）
+-- 11. voc_competitor（竞品口碑）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS p360_voc_competitor (
   brand_name             varchar(255)  NOT NULL,
@@ -268,7 +309,7 @@ CREATE TABLE IF NOT EXISTS p360_voc_competitor (
 COMMENT '商品中心 360 - 竞品口碑（→ PG voc_competitor）';
 
 -- ---------------------------------------------------------------------------
--- 11. sync_batch（同步批次；页面 asOf / delayed 的唯一来源，不能漏）
+-- 12. sync_batch（同步批次；页面 asOf / delayed 的唯一来源，不能漏）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS p360_sync_batch (
   batch_id               varchar(64)   NOT NULL,

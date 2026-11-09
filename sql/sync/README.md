@@ -7,6 +7,7 @@
 pd_spu              1067 行  ✅   sal_sku_day         1999 行  ✅
 pd_sku              1979 行  ✅   scm_stock           1461 行  ✅
 sal_sku_code        1999 行  ✅   voc_review_day       896 行  ✅
+sal_sku_online_listing 1000 行 ✅
 voc_nps_sentiment    177 行  ✅   voc_nps_tag         1654 行  ✅
 voc_ticket_topic     713 行  ✅   voc_competitor       102 行  ✅
 ```
@@ -43,6 +44,7 @@ StarRocks 只负责**导出列**，PG 负责**清洗 + 聚合**：
 | `10_pd_sku.sql` | SKU 主档 | `pd_sku` |
 | `11_pd_spu.sql` | SPU 主档 | `pd_spu` |
 | `20_sal_sku_code.sql` | 外部编码（ASIN / 平台 SKU） | `sal_sku_code` |
+| `23_sal_sku_online_listing.sql` | 全渠道在线商品（listing 级快照） | `sal_sku_online_listing` |
 | `21_sal_sku_day.sql` | 销售日汇总 | `sal_sku_day` |
 | `22_scm_stock.sql` | 渠道库存 | `scm_stock` |
 | `30_voc_review_day.sql` | 自有评论日汇总 | `voc_review_day` |
@@ -65,6 +67,7 @@ StarRocks 只负责**导出列**，PG 负责**清洗 + 聚合**：
 | `dim_pd_spu_info_df` | `pd_spu` | `spu_code`（同键取最后一行） | `spu_state` 空→1；`spu_state_desc` 空→'待上架'；`spu_model_name` 取 `model_info[0].model_name`，为空时由 `pd_sku` 兜底 |
 | `dim_pd_sku_info_df` | `pd_sku` | `sku_code`（同键取最后一行） | `sku_name` 空→回落到 `sku_code`；`deleted` 空→0 |
 | `dim_sal_sku_info_df` | `sal_sku_code` | `channel\|site\|shop_code\|sale_sku_code\|sku_code` | `sale_sku_code`/`channel` 任一空→丢弃；价格取 `sku_suggest_price`，上架人取 `sal_operator_name` |
+| `ads_sal_sku_online_listing_df` | `sal_sku_online_listing` | `channel\|site\|shop_code\|msku` | `channel`/`msku`/`listing_status` 任一空→丢弃；`has_*`/`content_item_cnt` 源端已算好原样透传；`pt` 列不落库 |
 | `dws_sal_sku_statistics_td_df` | `sal_sku_day` | `order_date\|platform\|shop\|country_code\|platform_sku` | 数量、金额按粒度**相加**；金额全空保持 NULL；`after_sale_replacement_qty` → `return_qty` |
 | `dwb_scm_stock_channel_df` | `scm_stock` | `channel_code\|country_code\|sku_code\|warehouse_code` | 数量相加，缺失按 0 |
 | `dws_cs_voc_nps_review_df`（`is_own_brand=1`） | `voc_review_day` | `spu_code\|review_date` | `rating_avg=avg(rating)` 保留 3 位；`review_count=count(*)` |

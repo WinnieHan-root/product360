@@ -28,6 +28,7 @@
 | `dws_cs_voc_nps_review_df.csv` | 1000 + 1000 | 评论 + NPS + 体验因子（含竞品） | ✅ `voc_review_day` / `voc_nps_tag` / `voc_nps_sentiment` / `voc_competitor` |
 | `dwb_cs_voc_record_channel_hf.csv` | 1000 + 1000 | 客服工单 / 退货留言 | ✅ 仅 `voc_ticket_topic`（主题分类） |
 | `dwb_sal_return_sku_df.csv` | 1000 + 1000 | 退货明细 | ❌ 第一期不同步（规划明确） |
+| `ads_sal_sku_online_listing_df.csv` | 1000（无 `_breast_pump` 变体） | 全渠道在线商品宽表，1 listing 1 行 | ✅ `sal_sku_online_listing`（1000 行） |
 
 ### 样例数据已知事实（实现时必须按此处理，不要试图「修好」数据）
 
@@ -50,6 +51,7 @@
 | `pd_spu` | `dim_pd_spu_info_df` | `spu_code` 唯一 |
 | `pd_sku` | `dim_pd_sku_info_df` | `sku_code` 唯一 |
 | `sal_sku_code` | `dim_sal_sku_info_df` | `(channel, site, shop_code, sale_sku_code, sku_code)` |
+| `sal_sku_online_listing` | `ads_sal_sku_online_listing_df` | `(channel, site, shop_code, msku)` |
 | `sal_sku_day` | `dws_sal_sku_statistics_td_df` | `(order_date, platform, shop, country_code, platform_sku)` |
 | `scm_stock` | `dwb_scm_stock_channel_df` | `(channel_code, country_code, sku_code, warehouse_code)` |
 | `voc_review_day` | `dws_cs_voc_nps_review_df` where `is_own_brand=1` | `(spu_code, review_date)` |
@@ -73,6 +75,7 @@
 - `pd_spu`：`spu_state_desc` 空 → `待上架`，`spu_state` 空 → `1`。`spu_model_name` 取 `model_info.model_name`（无则取该 SPU 任一 `pd_sku.spu_model_name`）。`tag_info` 原样入 `jsonb`。
 - `pd_sku`：`attr_info` 由 `extra_info` 中的属性数组提取为 `jsonb`（结构见源文件，不重建）。
 - `sal_sku_code`：`sale_sku_code` 即平台 SKU；`suggest_price` 取 `sku_suggest_price`。
+- `sal_sku_online_listing`：`channel` / `msku` / `listing_status` 任一为空 → 丢弃；`has_*` 与 `content_item_cnt` 是源端已算好的标记，**原样透传不重算**；`pt` 列（任务执行时间戳）不落库。
 - `sal_sku_day`：按唯一键聚合 `sum(sale_qty)` / `sum(order_qty)` / `sum(sales_amount_usd)` / `sum(after_sale_replacement_qty)`。`sale_qty` 为整型，四舍五入。
 - `scm_stock`：按唯一键聚合 `sum(in_stock_qty)` / `sum(on_way_qty)`。
 - `voc_review_day`：仅 `is_own_brand='1'` 且 `spu_code` 非空；按 (`spu_code`,`review_date`) 汇总 `avg(rating)`、`count(*)`。

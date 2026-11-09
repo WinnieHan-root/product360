@@ -32,23 +32,25 @@ PG public.*（NestJS API 直接读，页面出数）
 
 | 顺序 | 文件 | 产出 | 依赖 |
 |---|---|---|---|
-| 0（一次性） | `00_pg_patch.sql` | **在 PG 上执行**：11 张表 `id` 列加 `DEFAULT gen_random_uuid()` | 无 |
-| 0（一次性） | `01_sr_tables.sql` | 在 SR 上建 11 张 `p360_*` 中间表 | 无 |
+| 0（一次性） | `00_pg_patch.sql` | **在 PG 上执行**：12 张表 `id` 列加 `DEFAULT gen_random_uuid()` | 无 |
+| 0（一次性） | `01_sr_tables.sql` | 在 SR 上建 12 张 `p360_*` 中间表 | 无 |
 | 1 | `10_pd_sku.sql` | `p360_pd_sku` | 源表 `dim_pd_sku_info_df` |
 | 2 | `20_sal_sku_code.sql` | `p360_sal_sku_code` | 源表 `dim_sal_sku_info_df` |
-| 3 | `21_sal_sku_day.sql` | `p360_sal_sku_day` | 源表 `dws_sal_sku_statistics_td_df` |
-| 4 | `22_scm_stock.sql` | `p360_scm_stock` | 源表 `dwb_scm_stock_channel_df` |
-| 5 | `30_voc_review_day.sql` | `p360_voc_review_day` | 源表 `dws_cs_voc_nps_review_df` |
-| 6 | `31_voc_nps_sentiment.sql` | `p360_voc_nps_sentiment` | 同上 |
-| 7 | `32_voc_nps_tag.sql` | `p360_voc_nps_tag` | 同上（JSON 数组展开） |
-| 8 | `33_voc_ticket_topic.sql` | `p360_voc_ticket_topic` | 源表 `dwb_cs_voc_record_channel_hf` |
-| 9 | `34_voc_competitor.sql` | `p360_voc_competitor` | 源表 `dws_cs_voc_nps_review_df`（竞品口径） |
-| **10** | `11_pd_spu.sql` | `p360_pd_spu`（含 coverage 等预聚合列） | **依赖 1、2、3、4、5 的产出表** |
-| **11** | `99_sync_batch.sql` | `p360_sync_batch` | **依赖 1–10 全部产出表**（统计行数） |
+| 3 | `40_sal_sku_online_listing.sql` | `p360_sal_sku_online_listing` | 源表 `ads_sal_sku_online_listing_df` |
+| 4 | `21_sal_sku_day.sql` | `p360_sal_sku_day` | 源表 `dws_sal_sku_statistics_td_df` |
+| 5 | `22_scm_stock.sql` | `p360_scm_stock` | 源表 `dwb_scm_stock_channel_df` |
+| 6 | `30_voc_review_day.sql` | `p360_voc_review_day` | 源表 `dws_cs_voc_nps_review_df` |
+| 7 | `31_voc_nps_sentiment.sql` | `p360_voc_nps_sentiment` | 同上 |
+| 8 | `32_voc_nps_tag.sql` | `p360_voc_nps_tag` | 同上（JSON 数组展开） |
+| 9 | `33_voc_ticket_topic.sql` | `p360_voc_ticket_topic` | 源表 `dwb_cs_voc_record_channel_hf` |
+| 10 | `34_voc_competitor.sql` | `p360_voc_competitor` | 源表 `dws_cs_voc_nps_review_df`（竞品口径） |
+| **11** | `11_pd_spu.sql` | `p360_pd_spu`（含 coverage 等预聚合列） | **依赖 1、2、4、5、6 的产出表** |
+| **12** | `99_sync_batch.sql` | `p360_sync_batch` | **依赖 1–11 全部产出表**（统计行数） |
 
 **两个顺序不能动**：
 
 - `11_pd_spu` 必须最后算：它的 `coverage` / `sku_count` / `channel_count` / `sales_30d_*` / `in_stock_qty` / `review_count` 全部来自前面 5 张 `p360_*` 表。
+  （`40_sal_sku_online_listing` 不参与 coverage——它是 listing 级快照，不改变 SPU 的完整性口径。）
 - `99_sync_batch` 必须最后算：它写的是「每张表这次同步了多少行 + 什么时候同步完」，是页面 `asOf` 和「数据延迟」判定的唯一来源。**漏跑这张表，页面所有字段会显示「延迟/未知」，即使数据是新的。**
 
 ---

@@ -27,6 +27,7 @@ const FILES = {
   spu: "dim_pd_spu_info_df",
   sku: "dim_pd_sku_info_df",
   salCode: "dim_sal_sku_info_df",
+  online: "ads_sal_sku_online_listing_df",
   salDay: "dws_sal_sku_statistics_td_df",
   stock: "dwb_scm_stock_channel_df",
   voc: "dws_cs_voc_nps_review_df",
@@ -37,6 +38,7 @@ const BASE_TABLES = [
   "pd_spu",
   "pd_sku",
   "sal_sku_code",
+  "sal_sku_online_listing",
   "sal_sku_day",
   "scm_stock",
   "voc_review_day",
@@ -260,8 +262,72 @@ async function loadSalSkuCode(): Promise<LoadResult> {
   return { source: FILES.salCode, target: "sal_sku_code", read: table.rows.length, written };
 }
 
-/* -------------------------------------------------------------- sal_sku_day */
+/* ------------------------------------------------- sal_sku_online_listing */
 
+/**
+ * 全渠道在线商品宽表。业务键 channel+site+shop_code+msku（样例 1000/1000 唯一）。
+ * has_* 均为 0/1 标记，content_item_cnt 是五项之和（含恒为 1 的 has_status）。
+ */
+async function loadSalSkuOnlineListing(): Promise<LoadResult> {
+  const table = readTable(FILES.online);
+  const read = readerFactory(table);
+  const ds = fileDs(table);
+  if (!ds) throw new Error(`${FILES.online}: 无法确定 ds`);
+
+  const seen = new Map<string, Prisma.SalSkuOnlineListingCreateManyInput>();
+  for (const row of table.rows) {
+    const get = read(row);
+    const channel = text(get("channel"));
+    const msku = text(get("msku"));
+    const listingStatus = text(get("listing_status"));
+    if (!channel || !msku || !listingStatus) continue;
+
+    const site = text(get("site"));
+    const shopCode = text(get("shop_code"));
+    const key = [channel, site, shopCode, msku].map((v) => v ?? "").join("|");
+    seen.set(key, {
+      ds,
+      channel,
+      site,
+      shopCode,
+      msku,
+      externalId: text(get("external_id")) ?? "",
+      externalIdType: text(get("external_id_type")) ?? "",
+      parentExternalId: text(get("parent_external_id")),
+      skuCode: text(get("sku_code")),
+      scmSkuCode: text(get("scm_sku_code")),
+      spuCode: text(get("spu_code")),
+      title: text(get("title")),
+      descriptionSummary: text(get("description_summary")),
+      mainImageUrl: text(get("main_image_url")),
+      listingStatus,
+      listingStatusRaw: text(get("listing_status_raw")) ?? "",
+      operatorName: text(get("operator_name")),
+      currencyCode: text(get("currency_code")),
+      listPrice: decimal(get("list_price")),
+      salePrice: decimal(get("sale_price")),
+      barcode: text(get("barcode")),
+      inventoryQty: integer(get("inventory_qty")),
+      rating: decimal(get("rating")),
+      contentItemCnt: integer(get("content_item_cnt")) ?? 0,
+      hasTitle: integer(get("has_title")) ?? 0,
+      hasMainImage: integer(get("has_main_image")) ?? 0,
+      hasDescription: integer(get("has_description")) ?? 0,
+      hasPrice: integer(get("has_price")) ?? 0,
+      hasStatus: integer(get("has_status")) ?? 0,
+      productLink: text(get("product_link")),
+      srcTable: text(get("src_table")) ?? "",
+    });
+  }
+
+  const data = [...seen.values()];
+  const written = await createMany(data, (batch) =>
+    prisma.salSkuOnlineListing.createMany({ data: batch }),
+  );
+  return { source: FILES.online, target: "sal_sku_online_listing", read: table.rows.length, written };
+}
+
+/* -------------------------------------------------------------- sal_sku_day */
 async function loadSalSkuDay(): Promise<LoadResult> {
   const table = readTable(FILES.salDay);
   const read = readerFactory(table);
@@ -739,6 +805,7 @@ export async function runSync(): Promise<LoadResult[]> {
     { sourceTable: FILES.sku, run: loadSku },
     { sourceTable: FILES.spu, run: loadSpu },
     { sourceTable: FILES.salCode, run: loadSalSkuCode },
+    { sourceTable: FILES.online, run: loadSalSkuOnlineListing },
     { sourceTable: FILES.salDay, run: loadSalSkuDay },
     { sourceTable: FILES.stock, run: loadStock },
     { sourceTable: FILES.voc, run: loadVoc },
@@ -778,6 +845,7 @@ export async function runSync(): Promise<LoadResult[]> {
       SELECT '${FILES.sku}'::text AS t, max(ds) AS ds FROM pd_sku
       UNION ALL SELECT '${FILES.spu}', max(ds) FROM pd_spu
       UNION ALL SELECT '${FILES.salCode}', max(ds) FROM sal_sku_code
+      UNION ALL SELECT '${FILES.online}', max(ds) FROM sal_sku_online_listing
       UNION ALL SELECT '${FILES.salDay}', max(ds) FROM sal_sku_day
       UNION ALL SELECT '${FILES.stock}', max(ds) FROM scm_stock
       UNION ALL SELECT '${FILES.voc}', max(ds) FROM voc_review_day

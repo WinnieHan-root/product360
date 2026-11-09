@@ -6,6 +6,7 @@
 SELECT 'pd_spu' AS tbl, count(*) FROM pd_spu
 UNION ALL SELECT 'pd_sku', count(*) FROM pd_sku
 UNION ALL SELECT 'sal_sku_code', count(*) FROM sal_sku_code
+UNION ALL SELECT 'sal_sku_online_listing', count(*) FROM sal_sku_online_listing
 UNION ALL SELECT 'sal_sku_day', count(*) FROM sal_sku_day
 UNION ALL SELECT 'scm_stock', count(*) FROM scm_stock
 UNION ALL SELECT 'voc_review_day', count(*) FROM voc_review_day

@@ -20,6 +20,7 @@ SOURCES = {
     "dim_pd_spu_info_df": "stage_pd_spu",
     "dim_pd_sku_info_df": "stage_pd_sku",
     "dim_sal_sku_info_df": "stage_sal_sku_code",
+    "ads_sal_sku_online_listing_df": "stage_sal_sku_online_listing",
     "dws_sal_sku_statistics_td_df": "stage_sal_sku_day",
     "dwb_scm_stock_channel_df": "stage_scm_stock",
     "dws_cs_voc_nps_review_df": "stage_voc_nps",
@@ -54,6 +55,13 @@ USED = {
         asin_url sku_code scm_sku_code spu_code listing_status sal_listing_time first_order_time
         sku_suggest_currency sku_suggest_price sal_sku_qty sal_image_url
         category_name_level1 sal_operator_name
+    """,
+    "stage_sal_sku_online_listing": """
+        ds channel site shop_code msku external_id external_id_type parent_external_id
+        sku_code scm_sku_code spu_code title description_summary main_image_url
+        listing_status listing_status_raw operator_name currency_code list_price sale_price
+        barcode inventory_qty rating content_item_cnt has_title has_main_image
+        has_description has_price has_status product_link src_table
     """,
     "stage_sal_sku_day": """
         ds order_date platform channel shop country_code country_name platform_sku asin

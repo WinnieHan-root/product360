@@ -15,6 +15,7 @@ WITH b AS (SELECT sr_batch_id() AS batch_id), src AS (
          (SELECT count(*) FROM pd_spu) AS row_count, 'pd_spu' AS target
   UNION ALL SELECT 'dim_pd_sku_info_df', (SELECT max(sr_day(ds)) FROM stage_pd_sku), (SELECT count(*) FROM pd_sku), 'pd_sku'
   UNION ALL SELECT 'dim_sal_sku_info_df', (SELECT max(sr_day(ds)) FROM stage_sal_sku_code), (SELECT count(*) FROM sal_sku_code), 'sal_sku_code'
+  UNION ALL SELECT 'ads_sal_sku_online_listing_df', (SELECT max(sr_day(ds)) FROM stage_sal_sku_online_listing), (SELECT count(*) FROM sal_sku_online_listing), 'sal_sku_online_listing'
   UNION ALL SELECT 'dws_sal_sku_statistics_td_df', (SELECT max(sr_day(ds)) FROM stage_sal_sku_day), (SELECT count(*) FROM sal_sku_day), 'sal_sku_day'
   UNION ALL SELECT 'dwb_scm_stock_channel_df', (SELECT max(sr_day(ds)) FROM stage_scm_stock), (SELECT count(*) FROM scm_stock), 'scm_stock'
   UNION ALL SELECT 'dws_cs_voc_nps_review_df', (SELECT max(sr_day(ds)) FROM stage_voc_nps), (SELECT count(*) FROM voc_review_day), 'voc_review_day'

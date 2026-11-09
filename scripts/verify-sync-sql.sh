@@ -18,7 +18,7 @@ DB="${2:-p360sync_verify}"
 CONTAINER="${PG_CONTAINER:-product360-postgres}"
 PGUSER="${PGUSER:-product360}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TABLES=(pd_spu pd_sku sal_sku_code sal_sku_day scm_stock voc_review_day voc_nps_sentiment voc_nps_tag voc_ticket_topic voc_competitor)
+TABLES=(pd_spu pd_sku sal_sku_code sal_sku_online_listing sal_sku_day scm_stock voc_review_day voc_nps_sentiment voc_nps_tag voc_ticket_topic voc_competitor)
 SCHEMA_TABLES=("${TABLES[@]}" sync_batch)
 
 psql_exec() { docker exec -i "$CONTAINER" psql -U "$PGUSER" -d "$1" -v ON_ERROR_STOP=1 "${@:2}"; }
@@ -33,17 +33,21 @@ docker exec "$CONTAINER" bash -c "pg_dump -U $PGUSER -d $REF_DB --schema-only \
 
 log "2. staging 表 + 灌入样例 CSV"
 python3 "$ROOT/sql/sync/gen_stage.py" > "$ROOT/sql/sync/01_stage_ddl.sql"
-python3 "$ROOT/sql/sync/gen_stage.py" --load-sql /tmp/stage/load.sql > /dev/null
 psql_exec "$DB" -q -f - < "$ROOT/sql/sync/01_stage_ddl.sql"
 
+# 先清空再生成 COPY 清单：load.sql 若写在 rm 之前会被自己删掉，
+# 导致 psql 静默用上容器里上次运行残留的旧清单（新表全部为空）。
 rm -rf /tmp/stage && mkdir -p /tmp/stage
+python3 "$ROOT/sql/sync/gen_stage.py" --load-sql /tmp/stage/load.sql > /dev/null
 python3 - "$ROOT" <<'PY'
 import re, subprocess, sys, pathlib
 root = pathlib.Path(sys.argv[1])
 ddl = (root / "sql/sync/01_stage_ddl.sql").read_text()
 src = {
  "stage_pd_spu": "dim_pd_spu_info_df", "stage_pd_sku": "dim_pd_sku_info_df",
- "stage_sal_sku_code": "dim_sal_sku_info_df", "stage_sal_sku_day": "dws_sal_sku_statistics_td_df",
+ "stage_sal_sku_code": "dim_sal_sku_info_df",
+ "stage_sal_sku_online_listing": "ads_sal_sku_online_listing_df",
+ "stage_sal_sku_day": "dws_sal_sku_statistics_td_df",
  "stage_scm_stock": "dwb_scm_stock_channel_df", "stage_voc_nps": "dws_cs_voc_nps_review_df",
  "stage_voc_ticket": "dwb_cs_voc_record_channel_hf",
 }
@@ -54,11 +58,12 @@ for m in re.finditer(r"CREATE TABLE (\w+) \((.*?)\n\);", ddl, re.S):
     subprocess.run([sys.executable, str(root / "sql/sync/project_csv.py"), src[table],
                     f"/tmp/stage/{table}.csv", *cols], check=True)
 PY
-docker cp /tmp/stage/. "$CONTAINER:/tmp/stage/" > /dev/null
+docker exec "$CONTAINER" rm -rf /tmp/stage
+docker cp /tmp/stage "$CONTAINER:/tmp/" > /dev/null
 psql_exec "$DB" -q -f /tmp/stage/load.sql
 
 log "3. 执行清洗 SQL（00 → 99）"
-for f in 00_functions 10_pd_sku 11_pd_spu 20_sal_sku_code 21_sal_sku_day 22_scm_stock \
+for f in 00_functions 10_pd_sku 11_pd_spu 20_sal_sku_code 23_sal_sku_online_listing 21_sal_sku_day 22_scm_stock \
          30_voc_review_day 31_voc_nps_sentiment 32_voc_nps_tag 33_voc_ticket_topic \
          34_voc_competitor 90_aggregates 95_sync_batch; do
   docker cp "$ROOT/sql/sync/$f.sql" "$CONTAINER:/tmp/$f.sql" > /dev/null
@@ -91,4 +96,4 @@ psql_exec "$DB" -q -f - < "$ROOT/sql/sync/99_verify.sql"
 if [ "$fail" -ne 0 ]; then
   echo; echo "结果：存在差异，清洗 SQL 与 loader 不等价"; exit 1
 fi
-echo; echo "结果：10 张表全部与 TS loader 输出一致"
+echo; echo "结果：11 张表全部与 TS loader 输出一致"
