@@ -761,6 +761,21 @@ async function buildAggregates(): Promise<void> {
     WHERE EXISTS (SELECT 1 FROM sal_sku_day d WHERE d.spu_code = s.spu_code)
   `);
 
+  // 运营生命周期：4 个粗粒度阶段，优先级从上到下、第一命中即定级。
+  // 刻意不引入 listing_time（覆盖率 76%，空值只说明没登记上架时间，不代表未上市）。
+  // 19 个 SPU 主数据已下架但仍有 SKU 清仓中，按「已退市」处理（主数据终态优先）。
+  await prisma.$executeRawUnsafe(`
+    UPDATE pd_spu s SET lifecycle_stage = CASE
+      WHEN s.spu_state_desc IN ('已下架', '已取消') THEN 'retired'
+      WHEN EXISTS (
+        SELECT 1 FROM pd_sku k
+        WHERE k.spu_code = s.spu_code AND k.sku_state_desc = '清仓中'
+      ) THEN 'clearance'
+      WHEN s.spu_state_desc IN ('开发中', '待上架') THEN 'prelaunch'
+      ELSE 'selling'
+    END
+  `);
+
   await prisma.$executeRawUnsafe(`
     UPDATE pd_spu SET coverage =
       (CASE WHEN sku_count > 0 THEN 1 ELSE 0 END) +

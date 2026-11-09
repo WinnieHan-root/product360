@@ -80,9 +80,14 @@ CREATE TABLE IF NOT EXISTS p360_pd_spu (
   in_stock_qty           int,
   on_way_qty             int,
   review_count           int,
-  rating_avg             decimal(4, 3)
+  rating_avg             decimal(4, 3),
+  lifecycle_stage        varchar(16)   COMMENT 'selling/prelaunch/clearance/retired，加载期算好'
 ) DUPLICATE KEY(spu_code, ds)
 COMMENT '商品中心 360 - SPU 主档（→ PG pd_spu）';
+
+-- 已有表升级（P2-3 生命周期列）：CREATE TABLE IF NOT EXISTS 不会给已存在的表补列，
+-- 所以表已经建过的环境必须补跑这一条，否则 11_pd_spu.sql 的 INSERT 会因列数不匹配报错。
+-- ALTER TABLE p360_pd_spu ADD COLUMN lifecycle_stage varchar(16) COMMENT 'selling/prelaunch/clearance/retired，加载期算好' AFTER rating_avg;
 
 -- ---------------------------------------------------------------------------
 -- 2. pd_sku（SKU 主档）

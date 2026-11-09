@@ -83,7 +83,15 @@ SELECT
   coalesce(st.instock, 0) AS in_stock_qty,
   coalesce(st.onway, 0)   AS on_way_qty,
   coalesce(rv.cnt, 0)     AS review_count,
-  rv.avg_rating           AS rating_avg
+  rv.avg_rating           AS rating_avg,
+  -- 运营生命周期：优先级从上到下、第一命中即定级（与 loader.ts buildAggregates 同语义）。
+  -- 不引入 listing_time（覆盖率 76%，空值不代表未上市）。
+  case
+    when s.spu_state_desc in ('已下架', '已取消') then 'retired'
+    when cl.has_clearance = 1 then 'clearance'
+    when s.spu_state_desc in ('开发中', '待上架') then 'prelaunch'
+    else 'selling'
+  end                     AS lifecycle_stage
 FROM (
   SELECT
     row_number() OVER (PARTITION BY src.spu_code ORDER BY src.update_time DESC, src.spu_code) AS rn,
@@ -251,4 +259,11 @@ LEFT JOIN (
   FROM p360_voc_review_day
   GROUP BY spu_code
 ) rv ON rv.spu_code = s.spu_code
+-- ⑥ 清仓中：该 SPU 下存在 sku_state_desc = '清仓中' 的 SKU
+LEFT JOIN (
+  SELECT spu_code, 1 AS has_clearance
+  FROM p360_pd_sku
+  WHERE spu_code IS NOT NULL AND sku_state_desc = '清仓中'
+  GROUP BY spu_code
+) cl ON cl.spu_code = s.spu_code
 WHERE s.rn = 1;

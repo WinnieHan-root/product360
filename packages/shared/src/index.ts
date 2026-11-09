@@ -63,6 +63,35 @@ export const SKU_STATE_LABEL: Record<number, string> = {
   4: "已退市",
 };
 
+/**
+ * 运营生命周期（4 个粗粒度阶段，互斥且覆盖 100%）。
+ *
+ * 与 SPU_STATES 并列而非替代：SPU_STATES 是主数据流转状态（审批到哪一步），
+ * 这里是市场生命阶段。判定优先级从上到下，第一命中即定级：
+ *   已退市  ← spu_state_desc ∈ {已下架, 已取消}
+ *   清仓中  ← 存在 sku_state_desc = '清仓中' 的 SKU
+ *   未上市  ← spu_state_desc ∈ {开发中, 待上架}
+ *   在售    ← 其余（可销售）
+ *
+ * 刻意不引入 listing_time：生产库覆盖率仅 76%，空值只说明历史没登记上架时间，
+ * 不代表「未上市」；用它做判断会把 200+ 个在售商品误标。
+ */
+export const LIFECYCLE_STAGES = [
+  { key: "selling", label: "在售" },
+  { key: "prelaunch", label: "未上市" },
+  { key: "clearance", label: "清仓中" },
+  { key: "retired", label: "已退市" },
+] as const;
+
+export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number]["key"];
+
+export const LIFECYCLE_STAGE_LABEL: Record<string, string> = {
+  selling: "在售",
+  prelaunch: "未上市",
+  clearance: "清仓中",
+  retired: "已退市",
+};
+
 export const SPU_LEVELS = ["S", "A", "B", "C"] as const;
 
 /** NPS 五档，顺序即展示顺序。bucket 与 sentiment 为源表 nps_overall_sentiment / sentiment_bucket。 */
