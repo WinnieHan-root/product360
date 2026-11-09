@@ -318,7 +318,23 @@ GET /api/products/:spu/overview
       { "label": "Item ID", "status": "not_connected" }
     ]
   }],
-  "variantsMeta": { "total": 3, "source": "SKU 主档", "asOf": "2026-10-26" }
+  "variantsMeta": { "total": 3, "source": "SKU 主档", "asOf": "2026-10-26" },
+  "quality": {
+    "total": 2, "high": 1, "medium": 0, "low": 1,
+    "evaluated": 4, "checked": 5,
+    "masterCoverage": { "covered": 4, "total": 22 },
+    "issues": [
+      { "key": "mapping_sku_missing", "label": "映射的 SKU 不在主数据", "severity": "high",
+        "status": "ready", "count": 18,
+        "detail": "18/22 个在线 SKU 在主数据中找不到；主档仅覆盖 4/22，无法区分「映射错误」与「主档缺失」",
+        "samples": ["BP265-GR70BA-A", "BP288-NR71BA"],
+        "source": "全渠道在线商品", "asOf": "2026-11-08" },
+      { "key": "no_mapping_online", "label": "在售 listing 无内部编码", "severity": "medium",
+        "status": "not_connected", "count": null,
+        "detail": "sku_code 为空的 listing 同时没有 spu_code，无法归属到具体商品，只能在全局质检页统计",
+        "samples": [], "source": "全渠道在线商品", "asOf": "2026-11-08" }
+    ]
+  }
 }
 ```
 
@@ -327,6 +343,51 @@ GET /api/products/:spu/overview
 > `header.metrics` 是「跨页签指标带」用的一组摘要，直接读 `pd_spu` 的预聚合列（`sales_30d_usd` / `rating_avg` / `sku_count` / `channel_count`，与列表页同源），不额外查表、不重算。`sales30dUsd` / `ratingAvg` 属商业字段：`canViewCommercial=false` 时同样返回 `no_access` + `value: null`，前端显示「无权限」而不是 0。
 >
 > 变体 `codes` 严格按 `pd_sku.sku_code = sal_sku_code.sku_code` 关联：`sal_sku_code` 中只有 `spu_code` 而匹配不到 SKU 的编码行**不挂到任何变体**（样例中这类占多数），由渠道页完整展示。变体顺序为「有渠道编码的在前」。
+
+#### 4.4.1 质量告警（P2-5）
+
+`quality` 嵌在 `GET /api/products/:spu/overview` 响应里，**不新增接口、不新增底表、不接 Dataphin 巡检链路**，
+全部在 NestJS 里现算。5 条判定：
+
+| key | 判定 | severity | 依赖 | 抽样数据下的可用性 |
+|---|---|---|---|---|
+| `no_mapping_online` | 在售 listing 无内部编码 | medium | listing 表 | ❌ **恒为 `not_connected`**，见下 |
+| `mapping_sku_missing` | 映射的 SKU 不在主数据 | high | listing + pd_sku | 🟡 逻辑正确，抽样下覆盖不足 |
+| `missing_active_role` | 可销售商品缺产品负责人/计划人员/GTM | high | pd_spu | ✅ 零跨表依赖，始终可信 |
+| `sales_not_on_sale` | 近 30 天有销量但 SKU 非「在销售」 | medium | sal_sku_day + pd_sku | 🟡 逻辑正确，抽样下覆盖不足 |
+| `listing_content_gap` | 在线 listing 缺标题/主图/描述 | low | listing 表 | ✅ 零跨表依赖，始终可信 |
+
+**`no_mapping_online` 为什么恒为 `not_connected`**
+
+实测 `sku_code IS NULL` 的行**一定** `spu_code IS NULL`（交叉统计里 `sku_code 空 且 spu_code 非空` = 0 行）。
+这类行落不到任何商品详情页，所以对单个 SPU 永远为 0。它属于「全局质检页」口径，不是详情页指标。
+代码里保留判定条目但固定返回 `not_connected` + `count: null`，前端显示「未做校验」并说明原因，
+**不显示 0**（0 会被误读为「检查过了，没问题」）。
+
+**`not_connected` 的语义是「校验前提不成立」，不是「没接入数据」**
+
+跨表判定都要求对方表覆盖了本方引用的键。抽样数据里 `pd_sku` 只 1979 行，而 listing 表引用了 794 个
+`sku_code` 中只有 208 个能在主档找到 —— 直接判定会把「主档没抽样到」误报成「映射错误」。
+所以每条跨表判定都先检查前提：主档里没有任何该 SPU 的 SKU → `not_connected`；
+有部分 → `ready` 但 `detail` 里带上覆盖率分母并明说「无法区分映射错误与主档缺失」。
+
+`masterCoverage` 把这个分母提到顶层，前端在抽屉里单独一行展示，不必读 `detail` 文本。
+
+**`missing_active_role` 只对「可销售」状态判定**：开发中/待上架的商品本来就不该配齐角色，
+非可销售状态一律 `not_connected`。且它只能判断「是否配置」，**不能判断「是否在职」**（需 `dim_com_employee_df`）。
+
+**`count` 与 `status` 的契约**：`status !== "ready"` 时 `count` 必须为 `null`，不能是 0。
+顶层 `total` 只统计 `status === "ready" && count > 0` 的条目，`evaluated` / `checked` 分别给出
+「可校验条数」与「总检查条数」，前端据此显示「检查了 N 项，M 项可校验」。
+
+**不新增权限判定**：质量告警不含商业数据（不涉及价格、销量金额），任何角色都能看到完整结果。
+`employee` 角色下 `header.metrics.sales30dUsd` / `variants[].suggestPrice` 仍是 `no_access`，与质量告警互不影响。
+
+**为什么是 5 条而不是设计文档最初写的 4 条**
+
+设计文档 §3.1 的 4 条在抽样数据上验完发现 3 条不可用（1 条结构性不可能、2 条抽样伪影），
+`listing_content_gap` 是实测后补的第 5 条：它只读 listing 表自身的 `has_*` 标记，任何数据完整度下都可信，
+且命中量真实（online 594 行里 212 行缺内容，落在 34 个 SPU 上）。
 
 ### 4.5 渠道页
 
