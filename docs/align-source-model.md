@@ -133,9 +133,27 @@ GET  /api/auth/me                        → 同上 user
 ### 4.2 元数据
 
 ```
-GET /api/meta/brands     → { items: [{ code, name, spuCount }] }     // 只返回当前用户有权限品牌；无 scope 限制时为全量
-GET /api/meta/categories → { items: [{ code, name, spuCount }] }     // 一级类目
+GET /api/meta/brands          → { items: [{ code, name, spuCount }] }   // 只返回当前用户有权限品牌；无 scope 限制时为全量
+GET /api/meta/categories      → { items: [{ code, name, spuCount }] }   // 一级类目（扁平，保留兼容）
+GET /api/meta/categories/tree → { levels, total, tree: [CategoryNode] } // 四级类目树（前端用这个）
 ```
+
+```json
+// CategoryNode：children 仅在真有子节点时出现（不挂空数组，避免画出假的展开箭头）
+{ "value": "CA002", "label": "服纺", "count": 282,
+  "children": [
+    { "value": "CA002003", "label": "内衣", "count": 244,
+      "children": [{ "value": "CA002003021", "label": "文胸", "count": 206 }] }
+  ] }
+```
+
+- `value` 是该级**类目身份**：`COALESCE(编码, 名称)`，与列表筛选的匹配口径完全同源。
+- 树的聚合**在 scope 过滤之后做**，`employee` 角色看不到无权类目的名字；`count` 是子树内 SPU 数之和。
+- 只做 L1~L4：`category_code_level5` 在源表 100% 为空，不暴露。
+- 一次返回全树（生产 686 节点、深度 4），**不需要懒加载**。
+- **已知限制**：生产 1067 个 SPU 里 123 行 `category_code_level*` 为空、只有名称，导致同级出现同名节点
+  （如「服纺」既有 `CA002`(282) 又有 `服纺`(30)）。这是源表编码缺失的如实反映，前端不做合并也不猜编码；
+  上游补齐这 123 行的类目编码后自然消失。`name ↔ code` 实测严格 1:1，无同码异名或同名异码的歧义。
 
 ### 4.3 商品列表
 
@@ -146,6 +164,9 @@ GET /api/products?q=&brand=&category=&market=&state=&sort=coverage&page=1&pageSi
 `q`：精确优先命中 `spu_code` / `sku_code` / `asin` / 平台 SKU（`sal_sku_code.sale_sku_code`）；否则 `spu_name` / `spu_name_en` 模糊（`ILIKE %q%`）。
 `state`：`pd_spu.spu_state` 的 0/1/2/3/5。
 `market`：市场二字码，命中 `pd_spu.market_countries` 的任一元素（`= ANY(...)`）。空数组的 SPU 在任何市场筛选下都不命中；不传或传空串时不过滤。
+`category`：类目路径，`/` 分隔、1~4 段，第 N 段命中第 N 级类目（`COALESCE(编码, 名称)`）。
+每段都 AND 上级，**天然防跳级**：`category=CA002003`（把二级编码塞进第一段）返回 0 条，不会误命中。
+单段时与旧的一级类目筛选完全等价，既有链接无需迁移。超过 4 段只取前 4 段。
 `sort`：`coverage`(默认) / `updateTime` / `sales30d` / `reviewCount`，均倒序，次级排序 `spuCode asc`。
 
 ```json

@@ -12,6 +12,20 @@ export interface SessionUser {
   scopes: { scopeType: string; scopeCode: string }[];
 }
 
+/** 四级类目树节点：value 是该级身份（编码优先，缺码时退化为名称） */
+export interface CategoryNode {
+  value: string;
+  label: string;
+  count: number;
+  children?: CategoryNode[];
+}
+
+export interface CategoryTreeResponse {
+  levels: number;
+  total: number;
+  tree: CategoryNode[];
+}
+
 export interface MetaItem {
   code: string;
   name: string;

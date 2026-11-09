@@ -1,5 +1,6 @@
 import axios from "axios";
 import type {
+  CategoryTreeResponse,
   ChannelsResponse,
   ExternalResponse,
   MetaItem,
@@ -51,9 +52,10 @@ export async function fetchBrands() {
   return data.items;
 }
 
-export async function fetchCategories() {
-  const { data } = await api.get<{ items: MetaItem[] }>("/meta/categories");
-  return data.items;
+/** 四级类目树，一次取全树（约 520 节点，无需懒加载） */
+export async function fetchCategoryTree() {
+  const { data } = await api.get<CategoryTreeResponse>("/meta/categories/tree");
+  return data;
 }
 
 export async function fetchOverview(spu: string) {

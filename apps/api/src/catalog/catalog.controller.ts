@@ -17,6 +17,12 @@ export class CatalogController {
     return this.catalog.categories(req.user);
   }
 
+  /** 四级类目树，一次返回全树（约 520 节点） */
+  @Get("meta/categories/tree")
+  categoryTree(@Req() req: { user: AuthUser }) {
+    return this.catalog.categoryTree(req.user);
+  }
+
   @Get("products")
   list(@Req() req: { user: AuthUser }, @Query() query: ProductListQuery) {
     return this.catalog.list(req.user, query);

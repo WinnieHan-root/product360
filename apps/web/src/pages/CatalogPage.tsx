@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { Button, Empty, Select, Space, Table, Tag, Tooltip } from "antd";
+import { Button, Cascader, Empty, Select, Space, Table, Tag, Tooltip } from "antd";
 import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { CATALOG_SORTS, COVERAGE_DIMENSIONS, SPU_STATES } from "@product360/shared";
-import { fetchBrands, fetchCategories, fetchProducts } from "../api/client";
-import type { DataStatus, ProductListItem, ScopeInfo } from "../api/types";
+import { fetchBrands, fetchCategoryTree, fetchProducts } from "../api/client";
+import type { CategoryNode, DataStatus, ProductListItem, ScopeInfo } from "../api/types";
 import { DataValue } from "../components/DataValue";
 import { DistributionBar } from "../components/DistributionBar";
 import { MetricCard } from "../components/Field";
@@ -36,6 +36,26 @@ const COVERAGE_COLOR = ["#D0D5DD", "#A6D5BB", "#6FBF95", "#3EA470", "#1F8A4C"];
 function countField(value: number | undefined) {
   const status: DataStatus = value == null ? "empty" : "ready";
   return { status, source: null, asOf: null, value: value ?? null };
+}
+
+interface CascaderOption {
+  value: string;
+  label: string;
+  children?: CascaderOption[];
+}
+
+/** 后端树直接喂给 Cascader；label 挂计数便于判断「这个分支有多少商品」 */
+function toCascaderOptions(nodes: CategoryNode[]): CascaderOption[] {
+  return nodes.map((node) => ({
+    value: node.value,
+    label: `${node.label}（${node.count}）`,
+    children: node.children?.length ? toCascaderOptions(node.children) : undefined,
+  }));
+}
+
+/** 选中后只显示类目名，不显示计数（计数会撑爆 220px） */
+function stripCount(labels: string[]) {
+  return labels.map((label) => label.replace(/（[\d,]+）$/, "")).join(" / ");
 }
 
 const SCOPE_TEXT: Record<ScopeInfo["mode"], string> = {
@@ -96,7 +116,7 @@ export function CatalogPage() {
       }),
   });
   const brands = useQuery({ queryKey: ["brands"], queryFn: fetchBrands });
-  const categories = useQuery({ queryKey: ["categories"], queryFn: fetchCategories });
+  const categoryTree = useQuery({ queryKey: ["categoryTree"], queryFn: fetchCategoryTree });
 
   useEffect(() => {
     const scroller = document.getElementById("app-content");
@@ -133,6 +153,9 @@ export function CatalogPage() {
     value: item.count,
     color: COVERAGE_COLOR[item.level] ?? COVERAGE_COLOR[0],
   }));
+  const cascaderOptions = toCascaderOptions(categoryTree.data?.tree ?? []);
+  /** URL 里的 "/" 分段路径还原成 Cascader 需要的数组 */
+  const categoryPath = (params.get("category") ?? "").split("/").filter(Boolean);
   const topBrands = [...(brands.data ?? [])]
     .sort((a, b) => b.spuCount - a.spuCount)
     .slice(0, 6)
@@ -153,16 +176,18 @@ export function CatalogPage() {
             }))}
             onChange={(value) => update({ brand: value })}
           />
-          <Select
+          <Cascader
             allowClear
-            placeholder="一级类目"
-            style={{ minWidth: 170 }}
-            value={params.get("category") ?? undefined}
-            options={(categories.data ?? []).map((item) => ({
-              value: item.code,
-              label: `${item.name}（${item.spuCount}）`,
-            }))}
-            onChange={(value) => update({ category: value })}
+            changeOnSelect
+            showSearch
+            placeholder="类目（可只选到任意一级）"
+            style={{ minWidth: 220 }}
+            value={categoryPath}
+            options={cascaderOptions}
+            displayRender={stripCount}
+            onChange={(value) =>
+              update({ category: value?.length ? value.join("/") : undefined })
+            }
           />
           <Select
             allowClear

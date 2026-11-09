@@ -43,6 +43,30 @@ interface MarketBucketRow {
   count: number;
 }
 
+interface TreeRow {
+  c1: string | null;
+  n1: string | null;
+  c2: string | null;
+  n2: string | null;
+  c3: string | null;
+  n3: string | null;
+  c4: string | null;
+  n4: string | null;
+  cnt: number;
+}
+
+export interface CategoryNode {
+  value: string;
+  label: string;
+  count: number;
+  children?: CategoryNode[];
+}
+
+interface TreeBuilder {
+  node: CategoryNode;
+  kids: Map<string, TreeBuilder>;
+}
+
 interface ListRow {
   spuCode: string;
   spuName: string;
@@ -75,8 +99,30 @@ const SORT_SQL: Record<string, Prisma.Sql> = {
   reviewCount: Prisma.sql`s.review_count DESC, s.spu_code ASC`,
 };
 
-/** 类目身份：优先一级类目编码，编码缺失时退化为一级类目名称（样例中存在只有名称的行）。 */
-const CATEGORY_KEY = Prisma.sql`COALESCE(NULLIF(s.category_code_level1, ''), NULLIF(s.category_name_level1, ''))`;
+/**
+ * 类目各级身份：编码优先，编码为空时退化为名称（生产库 1067 行里 123 行只有名称）。
+ * 逐级写死列名，不接受任何拼接。
+ */
+const CATEGORY_LEVEL_KEYS = [
+  Prisma.sql`COALESCE(NULLIF(s.category_code_level1, ''), NULLIF(s.category_name_level1, ''))`,
+  Prisma.sql`COALESCE(NULLIF(s.category_code_level2, ''), NULLIF(s.category_name_level2, ''))`,
+  Prisma.sql`COALESCE(NULLIF(s.category_code_level3, ''), NULLIF(s.category_name_level3, ''))`,
+  Prisma.sql`COALESCE(NULLIF(s.category_code_level4, ''), NULLIF(s.category_name_level4, ''))`,
+];
+
+/** 一级类目身份，与 CATEGORY_LEVEL_KEYS[0] 同源。 */
+const CATEGORY_KEY = CATEGORY_LEVEL_KEYS[0];
+
+/** 类目树最多四级：L5 在源表 100% 为空，不暴露。 */
+const CATEGORY_LEVELS = CATEGORY_LEVEL_KEYS.length;
+
+/** 树节点名：与身份同源，编码缺失时用名称；名称也缺失时用编码兜底。 */
+const CATEGORY_LEVEL_NAMES = [
+  Prisma.sql`COALESCE(NULLIF(s.category_name_level1, ''), s.category_code_level1)`,
+  Prisma.sql`COALESCE(NULLIF(s.category_name_level2, ''), s.category_code_level2)`,
+  Prisma.sql`COALESCE(NULLIF(s.category_name_level3, ''), s.category_code_level3)`,
+  Prisma.sql`COALESCE(NULLIF(s.category_name_level4, ''), s.category_code_level4)`,
+];
 
 const LIST_COLUMNS = Prisma.sql`
   s.spu_code AS "spuCode",
@@ -144,6 +190,67 @@ export class CatalogService {
     return { items };
   }
 
+  /**
+   * 四级类目树。一次返回整棵树（生产约 520 个节点，无需懒加载）。
+   * 树必须从 scope 过滤后的数据算：employee 角色不能看到无权类目的名称。
+   */
+  async categoryTree(user: AuthUser) {
+    const scope = await this.access.scopeSql(user);
+    const rows = await this.prisma.$queryRaw<TreeRow[]>`
+      SELECT
+        ${CATEGORY_LEVEL_KEYS[0]} AS c1,
+        ${CATEGORY_LEVEL_NAMES[0]} AS n1,
+        ${CATEGORY_LEVEL_KEYS[1]} AS c2,
+        ${CATEGORY_LEVEL_NAMES[1]} AS n2,
+        ${CATEGORY_LEVEL_KEYS[2]} AS c3,
+        ${CATEGORY_LEVEL_NAMES[2]} AS n3,
+        ${CATEGORY_LEVEL_KEYS[3]} AS c4,
+        ${CATEGORY_LEVEL_NAMES[3]} AS n4,
+        count(*)::int AS cnt
+      FROM pd_spu s
+      WHERE ${scope}
+      GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+    `;
+    // 节点 value 用该级身份（编码优先），无跨父重码（已实测），故不必拼路径。
+    const roots = new Map<string, TreeBuilder>();
+    for (const row of rows) {
+      const levels: [string | null, string | null][] = [
+        [row.c1, row.n1],
+        [row.c2, row.n2],
+        [row.c3, row.n3],
+        [row.c4, row.n4],
+      ];
+      // 只维护 kids 引用，父子关系留给 finalize 一次性重建。
+      let siblings = roots;
+      for (const [code, name] of levels) {
+        if (!code || !name) break;
+        let builder = siblings.get(code);
+        if (!builder) {
+          builder = { node: { value: code, label: name, count: 0 }, kids: new Map() };
+          siblings.set(code, builder);
+        }
+        builder.node.count += row.cnt;
+        siblings = builder.kids;
+      }
+    }
+    // 收尾：kids 非空才挂 children（空数组会让 Cascader 画出假的展开箭头）。
+    const finalize = (builder: TreeBuilder): CategoryNode => {
+      const kids = [...builder.kids.values()]
+        .map(finalize)
+        .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+      return kids.length
+        ? { ...builder.node, children: kids }
+        : { value: builder.node.value, label: builder.node.label, count: builder.node.count };
+    };
+    return {
+      levels: CATEGORY_LEVELS,
+      total: [...roots.values()].reduce((sum, item) => sum + item.node.count, 0),
+      tree: [...roots.values()]
+        .map(finalize)
+        .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value)),
+    };
+  }
+
   async list(user: AuthUser, query: ProductListQuery) {
     const [scopeFilter, salesStamp] = await Promise.all([
       this.access.scopeSql(user),
@@ -152,7 +259,12 @@ export class CatalogService {
     const filters: Prisma.Sql[] = [scopeFilter];
 
     if (query.brand) filters.push(Prisma.sql`s.brand_code = ${query.brand}`);
-    if (query.category) filters.push(Prisma.sql`${CATEGORY_KEY} = ${query.category}`);
+    // category 支持 "/" 分段：第 1 段命中一级、第 2 段命中二级……段数即层级。
+    // 逐段都 AND 上级，天然防跳级；单段时与 P1 的 category=<一级> 完全等价。
+    const categoryParts = (query.category ?? "").split("/").filter(Boolean).slice(0, CATEGORY_LEVELS);
+    categoryParts.forEach((part, level) => {
+      filters.push(Prisma.sql`${CATEGORY_LEVEL_KEYS[level]} = ${part}`);
+    });
     if (query.state !== undefined) filters.push(Prisma.sql`s.spu_state = ${query.state}`);
     const marketFilter = query.market
       ? Prisma.sql`${query.market} = ANY(s.market_countries)`

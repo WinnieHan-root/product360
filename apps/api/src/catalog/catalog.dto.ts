@@ -16,9 +16,10 @@ export class ProductListQuery {
   @MaxLength(64)
   brand?: string;
 
+  /** 类目路径，"/" 分隔，1~4 段（第 N 段命中第 N 级类目）。单段等价于旧的一级类目筛选。 */
   @IsOptional()
   @IsString()
-  @MaxLength(64)
+  @MaxLength(200)
   category?: string;
 
   /** 市场二字码（US / DE / JP …）：命中 pd_spu.market_countries 任一元素。 */
