@@ -1,9 +1,11 @@
 import { Transform, Type } from "class-transformer";
 import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from "class-validator";
+import { LIFECYCLE_STAGES } from "@product360/shared";
 
 /** pd_spu.spu_state 的可选值，来自 shared/SPU_STATES，不接受其它值。 */
 const STATE_CODES = [0, 1, 2, 3, 5];
 const SORTS = ["coverage", "updateTime", "sales30d", "reviewCount"];
+const LIFECYCLE_KEYS = LIFECYCLE_STAGES.map((item) => item.key) as string[];
 
 export class ProductListQuery {
   @IsOptional()
@@ -32,6 +34,11 @@ export class ProductListQuery {
   @Transform(({ value }) => (value === "" || value == null ? undefined : Number(value)))
   @IsIn(STATE_CODES)
   state?: number;
+
+  /** 运营生命周期：selling / prelaunch / clearance / retired */
+  @IsOptional()
+  @IsIn(LIFECYCLE_KEYS)
+  lifecycle?: string;
 
   @IsOptional()
   @IsIn(SORTS)

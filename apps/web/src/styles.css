@@ -124,7 +124,8 @@ body,
 /* 三图并列；窄屏（1280）下保持三列但要允许图表压缩 */
 .chart-band {
   display: grid;
-  grid-template-columns: 1.05fr 1.15fr 1fr;
+  /* 4 张卡：状态 / 覆盖度 / 生命周期 / 品牌。1280 下每列约 280px，再窄 donut 图例就会挤。 */
+  grid-template-columns: 1fr 1.1fr 0.95fr 1.05fr;
   gap: var(--gap-3);
 }
 

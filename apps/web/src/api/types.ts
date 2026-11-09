@@ -56,6 +56,9 @@ export interface ProductListItem {
   reviewCount: number;
   coverage: number;
   coverageDimensions: string[];
+  /** 运营生命周期：selling / prelaunch / clearance / retired，加载期算好 */
+  lifecycleStage: string | null;
+  lifecycleStageLabel: string | null;
   updateTime: string | null;
 }
 
@@ -64,6 +67,8 @@ export interface ProductBreakdown {
   coverage: { level: number; count: number }[];
   /** 市场分布：只列真实出现的市场码（不补 0），不受 market 自身筛选收窄 */
   markets: { code: string; count: number }[];
+  /** 生命周期分布：固定 4 桶，缺的补 0 */
+  lifecycle: { key: string; label: string; count: number }[];
 }
 
 export interface ProductListResponse {

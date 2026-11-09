@@ -29,6 +29,21 @@ const STATE_CHART_COLOR: Record<number, string> = {
   5: "#C11574",
 };
 
+/** 生命周期配色：在售=品牌绿、未上市=灰、清仓=橙、退市=红（与状态标签语义对齐） */
+const LIFECYCLE_COLOR: Record<string, string> = {
+  selling: "#1F8A4C",
+  prelaunch: "#98A2B3",
+  clearance: "#F59E0B",
+  retired: "#C11574",
+};
+
+const LIFECYCLE_TAG_COLOR: Record<string, string> = {
+  selling: "green",
+  prelaunch: "default",
+  clearance: "orange",
+  retired: "red",
+};
+
 /** 覆盖度 0→4 由浅到深，和表格里的四格条同源 */
 const COVERAGE_COLOR = ["#D0D5DD", "#A6D5BB", "#6FBF95", "#3EA470", "#1F8A4C"];
 
@@ -110,6 +125,7 @@ export function CatalogPage() {
         category: params.get("category") ?? undefined,
         market: params.get("market") ?? undefined,
         state: params.get("state") ?? undefined,
+        lifecycle: params.get("lifecycle") ?? undefined,
         sort: params.get("sort") ?? undefined,
         page: params.get("page") ?? undefined,
         pageSize: params.get("pageSize") ?? undefined,
@@ -156,6 +172,11 @@ export function CatalogPage() {
   const cascaderOptions = toCascaderOptions(categoryTree.data?.tree ?? []);
   /** URL 里的 "/" 分段路径还原成 Cascader 需要的数组 */
   const categoryPath = (params.get("category") ?? "").split("/").filter(Boolean);
+  const lifecycleItems = (breakdown?.lifecycle ?? []).map((item) => ({
+    label: item.label,
+    value: item.count,
+    color: LIFECYCLE_COLOR[item.key] ?? LIFECYCLE_COLOR.prelaunch,
+  }));
   const topBrands = [...(brands.data ?? [])]
     .sort((a, b) => b.spuCount - a.spuCount)
     .slice(0, 6)
@@ -210,6 +231,17 @@ export function CatalogPage() {
             onChange={(value) => update({ state: value })}
           />
           <Select
+            allowClear
+            placeholder="生命周期"
+            style={{ minWidth: 130 }}
+            value={params.get("lifecycle") ?? undefined}
+            options={(breakdown?.lifecycle ?? []).map((item) => ({
+              value: item.key,
+              label: `${item.label}（${item.count}）`,
+            }))}
+            onChange={(value) => update({ lifecycle: value })}
+          />
+          <Select
             style={{ width: 160 }}
             value={params.get("sort") ?? "coverage"}
             options={CATALOG_SORTS.map((item) => ({ value: item.value, label: item.label }))}
@@ -235,6 +267,11 @@ export function CatalogPage() {
         <SectionCard title="数据覆盖度" subtitle="SKU / 渠道 / 销量 / 口碑">
           <div style={{ paddingTop: 6 }}>
             <DistributionBar items={coverageItems} unit=" 个" height={12} />
+          </div>
+        </SectionCard>
+        <SectionCard title="生命周期" subtitle="在售 / 未上市 / 清仓 / 退市">
+          <div style={{ paddingTop: 6 }}>
+            <DistributionBar items={lifecycleItems} unit=" 个" height={12} />
           </div>
         </SectionCard>
         <SectionCard title="品牌分布" subtitle="Top 6 · 权限范围">
@@ -315,6 +352,18 @@ export function CatalogPage() {
             render: (_, row) => <Tag color={STATE_COLOR[row.spuState]}>{row.spuStateLabel}</Tag>,
           },
           {
+            title: "生命周期",
+            width: 84,
+            render: (_, row) =>
+              row.lifecycleStageLabel ? (
+                <Tag color={LIFECYCLE_TAG_COLOR[row.lifecycleStage ?? ""] ?? "default"}>
+                  {row.lifecycleStageLabel}
+                </Tag>
+              ) : (
+                <StateTag status="empty" compact />
+              ),
+          },
+          {
             title: "SKU / 渠道",
             width: 88,
             align: "right",
@@ -374,7 +423,7 @@ export function CatalogPage() {
             ),
           },
         ]}
-          scroll={{ x: 1008 }}
+          scroll={{ x: 1092 }}
         />
       </SectionCard>
     </div>

@@ -2,6 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
   COVERAGE_DIMENSIONS,
+  LIFECYCLE_STAGES,
+  LIFECYCLE_STAGE_LABEL,
   PAGE_SIZES,
   SOURCE_TABLE_LABEL,
   SPU_STATES,
@@ -40,6 +42,11 @@ interface CoverageBucketRow {
 
 interface MarketBucketRow {
   code: string;
+  count: number;
+}
+
+interface LifecycleBucketRow {
+  stage: string | null;
   count: number;
 }
 
@@ -88,6 +95,7 @@ interface ListRow {
   sales30dUsd: Prisma.Decimal | null;
   reviewCount: number;
   coverage: number;
+  lifecycleStage: string | null;
   updateTime: Date | null;
 }
 
@@ -145,6 +153,7 @@ const LIST_COLUMNS = Prisma.sql`
   s.sales_30d_usd AS "sales30dUsd",
   s.review_count AS "reviewCount",
   s.coverage AS "coverage",
+  s.lifecycle_stage AS "lifecycleStage",
   s.update_time AS "updateTime"
 `;
 
@@ -266,6 +275,7 @@ export class CatalogService {
       filters.push(Prisma.sql`${CATEGORY_LEVEL_KEYS[level]} = ${part}`);
     });
     if (query.state !== undefined) filters.push(Prisma.sql`s.spu_state = ${query.state}`);
+    if (query.lifecycle) filters.push(Prisma.sql`s.lifecycle_stage = ${query.lifecycle}`);
     const marketFilter = query.market
       ? Prisma.sql`${query.market} = ANY(s.market_countries)`
       : null;
@@ -312,7 +322,7 @@ export class CatalogService {
       ORDER BY ${sortSql}
       LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
     `;
-    const [stateRows, coverageRows, marketRows] = await Promise.all([
+    const [stateRows, coverageRows, marketRows, lifecycleRows] = await Promise.all([
       this.prisma.$queryRaw<StateBucketRow[]>`
         SELECT s.spu_state AS code, count(*)::int AS count
         FROM pd_spu s
@@ -334,6 +344,12 @@ export class CatalogService {
         GROUP BY 1
         ORDER BY 2 DESC, 1 ASC
       `,
+      this.prisma.$queryRaw<LifecycleBucketRow[]>`
+        SELECT s.lifecycle_stage AS stage, count(*)::int AS count
+        FROM pd_spu s
+        ${where}
+        GROUP BY 1
+      `,
     ]);
 
     const summary = summaryRows[0] ?? {
@@ -345,6 +361,7 @@ export class CatalogService {
     };
     const stateCounts = new Map(stateRows.map((row) => [row.code, row.count]));
     const coverageCounts = new Map(coverageRows.map((row) => [row.level, row.count]));
+    const lifecycleCounts = new Map(lifecycleRows.map((row) => [row.stage, row.count]));
     return {
       items: rows.map((row) => this.toItem(row, user, salesStamp.asOf)),
       total: summary.total,
@@ -364,6 +381,12 @@ export class CatalogService {
         })),
         /** 市场分布：只列真实出现的市场码，不补 0（没出现就是没有该市场的商品）。 */
         markets: marketRows,
+        /** 生命周期分布：固定 4 个阶段，缺桶补 0。 */
+        lifecycle: LIFECYCLE_STAGES.map((item) => ({
+          key: item.key,
+          label: item.label,
+          count: lifecycleCounts.get(item.key) ?? 0,
+        })),
       },
       scope: await this.access.scopeInfo(user),
     };
@@ -424,6 +447,10 @@ export class CatalogService {
       ),
       reviewCount: row.reviewCount,
       coverage: row.coverage,
+      lifecycleStage: row.lifecycleStage,
+      lifecycleStageLabel: row.lifecycleStage
+        ? (LIFECYCLE_STAGE_LABEL[row.lifecycleStage] ?? row.lifecycleStage)
+        : null,
       coverageDimensions: COVERAGE_DIMENSIONS.filter((dimension) => flags[dimension.key]).map(
         (dimension) => dimension.key,
       ),
