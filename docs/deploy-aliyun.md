@@ -545,6 +545,16 @@ SR 侧 SQL 与清洗口径见 [`sql/dataphin/README.md`](../sql/dataphin/README.
 > `40_sal_sku_online_listing` 不参与 `pd_spu.coverage` 计算：它是 listing 级快照
 > （一行 = 一个店铺下一个 listing），不改变 SPU 的完整性口径。
 
+> **源表只有一张，抽样文件有两个。** 本地 `docs/sample_exports/` 里
+> `ads_sal_sku_online_listing_df.csv`（1000 行，Amazon/AliExpress）和
+> `ads_sal_sku_online_listing_df_breast_pump.csv`（1000 行，吸奶器专题 11 渠道）
+> 是**同一张 SR 表的两批随机抽样**，不是两张源表 —— 生产环境 `WHERE ds = '${bizdate}'`
+> 一次就拿到全部渠道。`loader.ts` 的 `VARIANTS = ["", "_breast_pump"]` 只是把两份
+> 抽样文件合并进本地库，**Dataphin 侧不需要对应拆成两个任务**。
+>
+> 合并后本地 2000 行去重必须带 `external_id`（`channel|site|shop_code|msku|external_id`）：
+> 同一内部 SKU 在 Shopify 会被重复建成多个商品，少这一列会丢掉 329 行。
+
 ### 13.2 集成任务的 3 条硬规则
 
 1. **按列名映射，不要按顺序。** PG 表第一列是 `id uuid`，SR 中间表没有这列，

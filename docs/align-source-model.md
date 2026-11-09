@@ -372,6 +372,82 @@ GET /api/products/:spu/channels?days=30      // days ∈ [7,90]，默认 30
 - `trend` 按日补齐整窗日期序列，**源表当日无该商品统计行时为 `null`**（不是 0）；前端只把 `null` 当空柱处理。窗口内全无销量 → `status: "empty"`。
 - 行级库存按 (渠道行 SKU, 渠道) 匹配；`summary.inStockQty` / `onWayQty` 按该 SPU 的全部 SKU（`pd_sku` ∪ `sal_sku_code`）汇总。样例各表独立抽样，行级与合计可能不同步，这是数据事实而非缺陷。
 
+#### 4.5.1 在线商品上架矩阵（P2-4）
+
+```
+GET /api/products/:spu/channels/listings?status=online
+```
+
+`status` ∈ `online`（默认）/ `offline` / `draft` / `deleted` / `all`；越界或非法值 → **400**（与 `lifecycle` 一致，用 `@IsIn`）。
+
+数据源是 `ads_sal_sku_online_listing_df`（→ PG `sal_sku_online_listing`），与上面 `GET .../channels` 用的
+`dim_sal_sku_info_df` / `dws_sal_sku_statistics_td_df` **是两个数据源**，同一商品两边的「渠道数」可以不同，
+界面上必须分别标注口径，不能相互印证。
+
+```json
+{
+  "spuCode": "SPU001001001003016",
+  "status": "online",
+  "counts": { "total": 225, "online": 16, "offline": 66, "draft": 143, "deleted": 0 },
+  "channels": [
+    { "channel": "shopify", "listingCount": 7, "shops": 3, "sites": ["CA", "US"],
+      "onlineCount": 7, "fullContentCount": 5, "contentAvg": 4.7,
+      "missing": { "title": 0, "image": 0, "description": 2, "price": 0 } }
+  ],
+  "items": [
+    { "channel": "shopify", "site": "CA", "shopCode": "shopifymomcozy_US",
+      "msku": "BP148-MR00BA-C", "externalId": "50983687258345", "externalIdType": "product_id",
+      "parentExternalId": null, "skuCode": "…",
+      "title": { "status": "ready", "source": "全渠道在线商品", "asOf": "2026-11-08", "value": "…" },
+      "descriptionSummary": { … }, "mainImageUrl": { … },
+      "listingStatus": "online", "listingStatusRaw": "active",
+      "operatorName": "周颖", "currencyCode": "USD",
+      "listPrice": { … }, "salePrice": { … }, "rating": null,
+      "contentItemCnt": 5,
+      "contentFlags": { "title": true, "mainImage": true, "description": false, "price": true, "status": true },
+      "productLink": "…", "srcTable": "dwb_sal_sku_shopify_df" }
+  ],
+  "coverage": {
+    "channels": ["amazon", "shopify", "shopee", "lazada", "aliexpress", "…"],
+    "srcTables": ["dwb_sal_sku_amazon_df", "dwb_sal_sku_jijia_listing_df", "dwb_sal_sku_shopify_df"],
+    "note": "覆盖 Amazon、Shopify、Shopee、Lazada、Mercado Libre、Shein、AliExpress 等渠道，仍非公司全部销售渠道",
+    "status": "ready", "source": "全渠道在线商品", "asOf": "2026-11-08"
+  }
+}
+```
+
+**`listing_status` 四值口径（源端已归一，前端不再推导）**
+
+| 值 | 含义 | 实测行数 | 说明 |
+|---|---|---|---|
+| `online` | 在线可售 | 594 | |
+| `offline` | 已下架 | 957 | 描述与主图多半不维护，是正常现象 |
+| `draft` | 草稿 | 416 | **仅 Shopify**：店铺里已建好但未发布。内容多半已填满，不能并入 `offline` |
+| `deleted` | 已删除 | 33 | 源端自己打的标，**不是从 `listing_status_raw` 推出来的** |
+
+`listing_status_raw` 保留源端原值（`上架\|正常` / `下架\|正常` / `下架\|发布中` / `AVAILABLE_FOR_SALE` /
+`NOT_FOR_SALE` / `active` / `draft`），只用于 Tooltip 解释，不参与判定。
+
+**`deleted` 与 `offline` 的 raw 值完全相同（都是 `下架|正常`）** —— 所以「已删除」不能用 raw 值区分，
+必须直接用源端的 `listing_status`。这一条纠正了 v2 设计里的阻塞项。
+
+**业务粒度含 `external_id`**
+
+去重键 = `channel | site | shop_code | msku | external_id`。必须带 `external_id`：
+同一个内部 SKU 在 Shopify 会被重复建成多个商品（各有独立 `product_id`），
+只按前四列去重会丢掉 329/2000 行（实测 2000 行 → 1671）。带上后 **2000/2000 唯一**。
+同时 amazon 侧一个 ASIN 挂多个 msku 变体也能靠 `msku` 区分，两个方向都不丢。
+
+**布局约束（from 实测）**
+
+单个 SPU 的 listing 数 1~225（中位 2），渠道×站点组合 1~36（中位 1）。
+所以矩阵 **行 = 指标、列 = 渠道**（最多 11 列，横向滚动），站点只在表头缩略；
+明细表独立分页（20/页）。不做「列 = 渠道×站点」，36 列不可读。
+
+**抽样造成的孤儿引用**：`sal_sku_online_listing` 里有 44 个 `spu_code` 在 `pd_spu` 中不存在。
+`pd_spu` 只抽了 1067 行，而 listing 表引用了更大范围的 SPU —— 是抽样伪影，不是脏数据，
+生产环境全量同步后自然消失。
+
 ### 4.6 口碑页
 
 ```

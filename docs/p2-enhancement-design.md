@@ -337,6 +337,26 @@ NOT_FOR_SALE   → offline
 
 ---
 
+### 4.5 P2-4 落地记录（与 v2 设计的三处偏离）
+
+`_breast_pump` 专题数据补齐后，源表从 1000 行 / 3 渠道 / 3 状态变成 **2000 行 / 11 渠道 / 4 状态**，
+v2 设计有三处前提失效，实施时按实测改判：
+
+| v2 设计 | 实测 | 落地改判 |
+|---|---|---|
+| 「`deleted` 29 行来自哪个 raw 值」是阻塞项 | `deleted` 的 raw 也是 `下架\|正常`，与 `offline` 完全相同 | 阻塞解除。`deleted` 是源端自己打的 `listing_status`，**不从 raw 推导**，前端如实展示即可 |
+| 「只有 amazon + aliexpress 两渠道，是否仍按全渠道交付」是阻塞项 | 11 个渠道值（amazon / shopify / shopee / lazada / mercadolibre / mercadolibre_local / shein / aliexpress / aliexpress_pop_choice / cdiscount / shoplazza） | 阻塞解除。仍不是公司全部渠道，`coverage.note` 显式声明覆盖范围，不写「全渠道」 |
+| 「列 = 渠道，单元格三层紧凑布局」 | 单 SPU 最多 225 条 listing、36 个渠道×站点组合；同 SKU 在 Shopify 被重复建成多个商品 | 矩阵改为 **行 = 指标、列 = 渠道**；listing 明细独立成分页表格 |
+
+**新增状态 `draft`（416 行，仅 Shopify）**：店铺里已建好但未发布。实测 title 100%、主图 99.8%、价格 100%、
+`content_item_cnt=5` 占 326/416 —— 内容质量比 `online` 还整齐。并入 `offline` 会让人误判「内容缺失」，
+所以单列一类，前端 Segmented 给「草稿」独立入口。
+
+**去重键必须加 `external_id`**：原键 `channel|site|shop_code|msku` 在合并后 2000 行上只有 1671 唯一，
+会**静默丢 329 行**（16.5%）。加 `external_id` 后 2000/2000 唯一。这不是脏数据 ——
+同一个内部 SKU 在 Shopify 确实会被重复建成多个商品（各自独立 `product_id`），
+用 `external_id` 区分才是对的；同时 amazon 侧「一个 ASIN 挂多个 msku 变体」靠 `msku` 区分，两个方向都不丢。
+
 ## 5. 交付建议
 
 | 优先级 | 事项 | 数据就绪 | 预估 | 依赖 |
@@ -345,7 +365,7 @@ NOT_FOR_SALE   → offline
 | **P2-1** | 市场筛选 | 🟢 **已完成** | 0.5 天 | 无 |
 | **P2-2** | 类目四级级联 | 🟢 **已完成** | 1 天 | 无 |
 | **P2-3** | 生命周期列（先 4 个粗粒度） | 🟢 **已完成**（加载期落列） | 1 天 | 无 |
-| **P2-4** | **渠道对比矩阵**（在线 listing × 渠道） | 🟢 依赖 P2-0 | 2.5 天 | P2-0 |
+| **P2-4** | **渠道对比矩阵**（在线 listing × 渠道） | 🟢 **已完成** | 2.5 天 | P2-0 |
 | **P2-5** | 详情页质量告警（路线 A，4 条现算） | 🟢 依赖 P2-0 | 1 天 | P2-0 |
 | **P2-6** | 质量告警全链路（路线 B，剩 5 类） | 🔴 | 5~8 天 | 巡检启用决策 |
 
