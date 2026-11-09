@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS p360_sal_sku_online_listing (
   has_status             int,
   product_link           string,
   src_table              varchar(128)
-) DUPLICATE KEY(channel, site, shop_code, msku)
+) DUPLICATE KEY(channel, site, shop_code, msku, external_id)
 COMMENT '商品中心 360 - 全渠道在线商品宽表（→ PG sal_sku_online_listing）';
 
 -- ---------------------------------------------------------------------------
