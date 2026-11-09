@@ -512,3 +512,96 @@ docker run --rm -v "$PWD":/w -w /w alpine sh -c 'grep -rl "POSTGRES_PASSWORD" --
 - postgres 默认只有容器内 `expose`，**安全组开 5432 也不通**；需要外部写入时叠加
   `deploy/docker-compose.pg-tunnel.yml`（绑 `127.0.0.1:5432`）走 SSH 隧道
 - Docker publish 会绕过 ufw，端口管控只认安全组
+
+---
+
+## 13. 数据同步任务编排（Dataphin → StarRocks → PostgreSQL）
+
+链路：**数仓源表 → StarRocks `p360_*` 中间表 → Dataphin 集成任务 → PG `public.*`**。
+清洗全部在 StarRocks 侧完成，集成任务只做搬运，页面（NestJS）只读 PG。
+SR 侧 SQL 与清洗口径见 [`sql/dataphin/README.md`](../sql/dataphin/README.md)。
+
+### 13.1 任务清单与依赖顺序（12 个）
+
+| # | 清洗 SQL | SR 中间表 | PG 目标表 | 依赖 |
+|---|---|---|---|---|
+| 1 | `10_pd_sku.sql` | `p360_pd_sku` | `pd_sku` | — |
+| 2 | `20_sal_sku_code.sql` | `p360_sal_sku_code` | `sal_sku_code` | — |
+| 3 | `40_sal_sku_online_listing.sql` | `p360_sal_sku_online_listing` | `sal_sku_online_listing` | — |
+| 4 | `21_sal_sku_day.sql` | `p360_sal_sku_day` | `sal_sku_day` | — |
+| 5 | `22_scm_stock.sql` | `p360_scm_stock` | `scm_stock` | — |
+| 6 | `30_voc_review_day.sql` | `p360_voc_review_day` | `voc_review_day` | — |
+| 7 | `31_voc_nps_sentiment.sql` | `p360_voc_nps_sentiment` | `voc_nps_sentiment` | — |
+| 8 | `32_voc_nps_tag.sql` | `p360_voc_nps_tag` | `voc_nps_tag` | — |
+| 9 | `33_voc_ticket_topic.sql` | `p360_voc_ticket_topic` | `voc_ticket_topic` | — |
+| 10 | `34_voc_competitor.sql` | `p360_voc_competitor` | `voc_competitor` | — |
+| **11** | `11_pd_spu.sql` | `p360_pd_spu` | `pd_spu` | **1~6**（coverage / sku_count / sales_30d 全靠它们） |
+| **12** | `99_sync_batch.sql` | `p360_sync_batch` | `sync_batch` | **1~11 全部** |
+
+**两个顺序不能动**：`11_pd_spu` 必须等前面 5 张明细表（1/2/4/5/6）就绪；
+`99_sync_batch` 必须最后跑——页面的 `asOf` 和「数据延迟」只读这张表，
+放最后才能保证「批次更新 = 前面全部成功」，中途失败时页面不会误报数据新鲜。
+
+> `40_sal_sku_online_listing` 不参与 `pd_spu.coverage` 计算：它是 listing 级快照
+> （一行 = 一个店铺下一个 listing），不改变 SPU 的完整性口径。
+
+### 13.2 集成任务的 3 条硬规则
+
+1. **按列名映射，不要按顺序。** PG 表第一列是 `id uuid`，SR 中间表没有这列，
+   靠 `00_pg_patch.sql` 加的 `DEFAULT gen_random_uuid()` 自动填。
+2. **全量覆盖，禁用 upsert。** 目标表写入方式选「覆盖 / replace」或配
+   `TRUNCATE TABLE xxx` 前置语句。理由见 `sql/dataphin/README.md` §3.1
+   （实测 `duplicate key value violates unique constraint`；且 upsert 删不掉源端
+   已消失的行，会让 `coverage` / `sku_count` 越算越大）。
+3. **`sync_batch` 排在最后一个。** 见上文。
+
+### 13.3 新增一张底表要改哪 7 处（以 `sal_sku_online_listing` 为例）
+
+`BASE_TABLES` 有两份定义，**必须两处都改**，只改一处会出现「数据翻倍」或「TRUNCATE 不存在的表导致 sync 崩溃」：
+
+1. `packages/shared/src/index.ts` — `BASE_TABLES`（+ 需要的话 `SOURCE_TABLE_LABEL`）
+2. `apps/api/src/sync/loader.ts` — `BASE_TABLES` / `FILES` / `loadXxx()` / `steps` / `source_ds` 回填
+3. `apps/api/prisma/schema.prisma` — 新增 model（不加外键；含 NULL 的业务键不要加 `@@unique`）
+4. `sql/dataphin/00_pg_patch.sql` — 新表 `id` 列补 `DEFAULT gen_random_uuid()`
+5. `sql/dataphin/01_sr_tables.sql` — 新增 `p360_*` 中间表（DUPLICATE KEY，不用 PRIMARY KEY）
+6. `sql/dataphin/NN_xxx.sql` — 新建清洗 SQL（`INSERT INTO p360_xxx SELECT ... WHERE ds='${bizdate}'`）
+7. `sql/dataphin/README.md` + `docs/align-source-model.md` — 更新文件清单/源表映射
+
+如果想让本地等价性验证覆盖新表，还要改 `sql/sync/`（PG 方言版 + `gen_stage.py` + `verify-sync-sql.sh`），详见该目录 README。
+
+### 13.4 同步后验收
+
+```bash
+# 容器内看各表是否与源端快照数一致
+docker exec -it product360-postgres psql -U product360 -d product360 -c "
+SELECT 'pd_spu' t, count(*) FROM pd_spu
+UNION ALL SELECT 'pd_sku', count(*) FROM pd_sku
+UNION ALL SELECT 'sal_sku_code', count(*) FROM sal_sku_code
+UNION ALL SELECT 'sal_sku_online_listing', count(*) FROM sal_sku_online_listing
+UNION ALL SELECT 'sal_sku_day', count(*) FROM sal_sku_day
+UNION ALL SELECT 'scm_stock', count(*) FROM scm_stock
+UNION ALL SELECT 'voc_review_day', count(*) FROM voc_review_day
+UNION ALL SELECT 'voc_nps_sentiment', count(*) FROM voc_nps_sentiment
+UNION ALL SELECT 'voc_nps_tag', count(*) FROM voc_nps_tag
+UNION ALL SELECT 'voc_ticket_topic', count(*) FROM voc_ticket_topic
+UNION ALL SELECT 'voc_competitor', count(*) FROM voc_competitor;"
+
+# 批次是否最新（页面 asOf / delayed 的唯一来源）
+docker exec -it product360-postgres psql -U product360 -d product360 -c "
+SELECT source_table, source_ds, row_count, status, finished_at
+FROM sync_batch ORDER BY source_table;"
+```
+
+`source_ds` 全为空 = 集成任务没写入 `ds` 列；`row_count` 为 0 = 该任务没跑或源端空分区。
+
+**同步完不需要重启服务**：业务数据全部实时 `$queryRaw` 查库，唯一的缓存是
+`source.service.ts` 的 `CACHE_TTL_MS = 30s`（只缓存 `sync_batch` 的 `asOf`/`delayed`），
+浏览器刷新即可，最坏等 30 秒。
+
+### 13.5 三个踩过的报错
+
+| 报错 | 原因 | 处理 |
+|---|---|---|
+| `datasource's schema: product360 not exist` | Dataphin 的「Schema」填成了库名 | Schema 填 `public` 或留空；JDBC 写 `jdbc:postgresql://<IP>:5432/product360` |
+| `duplicate key value violates unique constraint "pd_sku_sku_code_key"` | 用了 upsert 且冲突键填 `id`（uuid 永不命中） | 改全量覆盖 |
+| `there is no unique or exclusion constraint matching the ON CONFLICT specification` | `sal_sku_code` / `sal_sku_day` / `scm_stock` / `sync_batch` 没有唯一约束 | 同上，这几张表根本不可能 upsert |

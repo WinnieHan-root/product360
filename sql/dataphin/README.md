@@ -1,6 +1,6 @@
 # Dataphin / StarRocks 清洗任务（生产链路）
 
-**这套 SQL 干什么**：从 StarRocks 数仓源表出发，在 Dataphin 里算出商品中心 360 需要的 10 张业务表（+ 1 张同步批次表），输出成 StarRocks 中间表 `p360_*`，再由 Dataphin 集成任务整表同步到生产 PostgreSQL 的 `public.*`。
+**这套 SQL 干什么**：从 StarRocks 数仓源表出发，在 Dataphin 里算出商品中心 360 需要的 11 张业务表（+ 1 张同步批次表），输出成 StarRocks 中间表 `p360_*`，再由 Dataphin 集成任务整表同步到生产 PostgreSQL 的 `public.*`。
 
 ```
 StarRocks 源表（ods/dwd/dws）
@@ -127,7 +127,7 @@ ERROR: duplicate key value violates unique constraint "pd_sku_sku_code_key"
 | DataX | `postSql` 留空，`preSql` 填 `TRUNCATE TABLE pd_sku` |
 | 自写脚本 | `TRUNCATE TABLE pd_sku;` 后再批量 INSERT |
 
-> **顺序很关键**：先同步 10 张业务表，**最后同步 `sync_batch`**。
+> **顺序很关键**：先同步 11 张业务表，**最后同步 `sync_batch`**。
 > 因为页面 `asOf` / `delayed` 只看 `sync_batch`——把它放在最后，
 > 就能保证「批次表被更新」= 「前面所有表都已成功」，中途失败时页面不会误报数据新鲜。
 >
