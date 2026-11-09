@@ -159,6 +159,7 @@ export interface Overview {
   };
   variants: Variant[];
   variantsMeta: { total: number; source: string; asOf: string | null };
+  quality: QualityResponse;
 }
 
 export interface ChannelRow {
@@ -175,6 +176,36 @@ export interface ChannelRow {
   salesAmountUsd: DataField<number>;
   inStockQty: DataField<number>;
   onWayQty: DataField<number>;
+}
+
+/** P2-5：详情页质量告警（全部现算，不接 Dataphin 巡检链路） */
+export type QualitySeverity = "high" | "medium" | "low";
+
+export interface QualityIssue {
+  key: string;
+  label: string;
+  severity: QualitySeverity;
+  /** ready = 已评估、count 可信；not_connected = 校验前提不成立、count 必为 null */
+  status: DataStatus;
+  count: number | null;
+  detail: string;
+  samples: string[];
+  source: string;
+  asOf: string | null;
+}
+
+export interface QualityResponse {
+  /** 有问题的判定条数（不含 not_connected 与 0 命中） */
+  total: number;
+  high: number;
+  medium: number;
+  low: number;
+  /** 可评估的条数 / 总检查条数 */
+  evaluated: number;
+  checked: number;
+  /** 跨表判定可信度的分母：该商品在线 listing 引用的 SKU 中主档覆盖了几个 */
+  masterCoverage: { covered: number; total: number };
+  issues: QualityIssue[];
 }
 
 export interface ChannelsResponse {

@@ -679,6 +679,122 @@ body,
   color: var(--text-3);
 }
 
+/* 质量告警胶囊：正常商品零噪声（静态绿字），有问题才变成可点按钮 */
+.quality-badge {
+  font-size: 12px;
+  line-height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: none;
+  white-space: nowrap;
+}
+
+.quality-badge--ok {
+  color: var(--text-3);
+  background: #f4f6f8;
+}
+
+.quality-badge--hit {
+  cursor: pointer;
+  color: #b54708;
+  background: #fffaeb;
+  font-family: inherit;
+}
+
+.quality-badge--hit:hover {
+  background: #fef0c7;
+}
+
+.quality-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.quality-summary .is-hit {
+  color: #b54708;
+}
+
+.quality-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quality-row {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fafbfc;
+  border: 1px solid var(--border);
+}
+
+.quality-row--hit {
+  background: #fffdf7;
+  border-color: #fedf89;
+}
+
+.quality-row__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quality-row__label {
+  font-size: 13px;
+  color: var(--text-1);
+  flex: 1 1 auto;
+}
+
+.quality-row__count {
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.quality-row__count.is-hit {
+  color: #b54708;
+}
+
+.quality-row__detail {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.quality-row__samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.quality-row__samples code {
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #f2f4f7;
+  color: var(--text-2);
+}
+
+.quality-row__source {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.quality-foot {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
 /* listing 展开行：描述 + 元信息 + 主图 */
 .listing-detail {
   display: flex;

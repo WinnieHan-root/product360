@@ -6,6 +6,7 @@ import type { CartonValue, DataStatus, PackagingValue, Variant } from "../api/ty
 import { DataValue, MetaLine } from "../components/DataValue";
 import { FieldBlock } from "../components/Field";
 import { KeyValueGrid } from "../components/KeyValueGrid";
+import { QualityBadge } from "../components/QualityBadge";
 import { SectionCard } from "../components/SectionCard";
 import { StateTag } from "../components/State";
 
@@ -114,7 +115,11 @@ export function OverviewPage() {
     <div className="page-stack">
       <div className="detail-grid">
         <div className="detail-col">
-          <SectionCard title="基础信息" loading={query.isLoading}>
+          <SectionCard
+            title="基础信息"
+            loading={query.isLoading}
+            extra={<QualityBadge quality={data?.quality} />}
+          >
             <KeyValueGrid cols={3}>
               {(data?.fields ?? []).map((item) => (
                 <FieldBlock key={item.key} label={item.label} field={item.field} />

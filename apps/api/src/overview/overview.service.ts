@@ -6,6 +6,7 @@ import type { AuthUser } from "../common/auth-user";
 import { categoryPath, commercial, dayKey, field, num } from "../common/field";
 import { PrismaService } from "../common/prisma.service";
 import { SourceService, type SourceStamp } from "../common/source.service";
+import { QualityService } from "./quality.service";
 
 const SPU_TABLE = "dim_pd_spu_info_df";
 const SKU_TABLE = "dim_pd_sku_info_df";
@@ -45,6 +46,7 @@ export class OverviewService {
     private readonly prisma: PrismaService,
     private readonly access: AccessService,
     private readonly sources: SourceService,
+    private readonly quality: QualityService,
   ) {}
 
   /** 值存在即 ready（批次过期会被 SourceService 改判 delayed），为空即 empty。 */
@@ -65,7 +67,10 @@ export class OverviewService {
       this.sources.stamp(SKU_TABLE),
     ]);
 
-    const product = await this.prisma.pdSpu.findUniqueOrThrow({ where: { spuCode } });
+    const [product, quality] = await Promise.all([
+      this.prisma.pdSpu.findUniqueOrThrow({ where: { spuCode } }),
+      this.quality.issues(spuCode),
+    ]);
     const skus = await this.prisma.pdSku.findMany({
       where: { spuCode },
       orderBy: { skuCode: "asc" },
@@ -217,6 +222,7 @@ export class OverviewService {
         };
       }),
       variantsMeta: { total: skus.length, source: SKU_SOURCE, asOf: stampSku.asOf },
+      quality,
     };
   }
 }
