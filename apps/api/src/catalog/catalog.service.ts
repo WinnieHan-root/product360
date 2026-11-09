@@ -38,6 +38,11 @@ interface CoverageBucketRow {
   count: number;
 }
 
+interface MarketBucketRow {
+  code: string;
+  count: number;
+}
+
 interface ListRow {
   spuCode: string;
   spuName: string;
@@ -149,6 +154,10 @@ export class CatalogService {
     if (query.brand) filters.push(Prisma.sql`s.brand_code = ${query.brand}`);
     if (query.category) filters.push(Prisma.sql`${CATEGORY_KEY} = ${query.category}`);
     if (query.state !== undefined) filters.push(Prisma.sql`s.spu_state = ${query.state}`);
+    const marketFilter = query.market
+      ? Prisma.sql`${query.market} = ANY(s.market_countries)`
+      : null;
+    if (marketFilter) filters.push(marketFilter);
 
     const q = query.q?.trim();
     if (q) {
@@ -164,6 +173,12 @@ export class CatalogService {
     }
 
     const where = Prisma.sql`WHERE ${Prisma.join(filters, " AND ")}`;
+    // 市场选项必须来自「未被 market 自身收窄」的范围，否则选完只剩一个选项、无法切换。
+    // state/coverage 的 facets 仍然吃完整 where（保持 P1 既有语义不变）。
+    const whereNoMarket = Prisma.sql`WHERE ${Prisma.join(
+      filters.filter((item) => item !== marketFilter),
+      " AND ",
+    )}`;
     const page = Math.max(1, query.page ?? 1);
     const requestedSize = query.pageSize ?? 0;
     const pageSize = (PAGE_SIZES as readonly number[]).includes(requestedSize) ? requestedSize : 20;
@@ -185,7 +200,7 @@ export class CatalogService {
       ORDER BY ${sortSql}
       LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
     `;
-    const [stateRows, coverageRows] = await Promise.all([
+    const [stateRows, coverageRows, marketRows] = await Promise.all([
       this.prisma.$queryRaw<StateBucketRow[]>`
         SELECT s.spu_state AS code, count(*)::int AS count
         FROM pd_spu s
@@ -199,6 +214,13 @@ export class CatalogService {
         ${where}
         GROUP BY 1
         ORDER BY 1
+      `,
+      this.prisma.$queryRaw<MarketBucketRow[]>`
+        SELECT m AS code, count(*)::int AS count
+        FROM pd_spu s, unnest(s.market_countries) AS m
+        ${whereNoMarket}
+        GROUP BY 1
+        ORDER BY 2 DESC, 1 ASC
       `,
     ]);
 
@@ -228,6 +250,8 @@ export class CatalogService {
           level,
           count: coverageCounts.get(level) ?? 0,
         })),
+        /** 市场分布：只列真实出现的市场码，不补 0（没出现就是没有该市场的商品）。 */
+        markets: marketRows,
       },
       scope: await this.access.scopeInfo(user),
     };

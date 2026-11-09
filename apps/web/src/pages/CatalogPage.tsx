@@ -88,6 +88,7 @@ export function CatalogPage() {
         q: params.get("q") ?? undefined,
         brand: params.get("brand") ?? undefined,
         category: params.get("category") ?? undefined,
+        market: params.get("market") ?? undefined,
         state: params.get("state") ?? undefined,
         sort: params.get("sort") ?? undefined,
         page: params.get("page") ?? undefined,
@@ -162,6 +163,18 @@ export function CatalogPage() {
               label: `${item.name}（${item.spuCount}）`,
             }))}
             onChange={(value) => update({ category: value })}
+          />
+          <Select
+            allowClear
+            showSearch
+            placeholder="市场"
+            style={{ minWidth: 140 }}
+            value={params.get("market") ?? undefined}
+            options={(breakdown?.markets ?? []).map((item) => ({
+              value: item.code,
+              label: `${item.code}（${item.count}）`,
+            }))}
+            onChange={(value) => update({ market: value })}
           />
           <Select
             allowClear

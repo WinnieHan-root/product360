@@ -21,6 +21,12 @@ export class ProductListQuery {
   @MaxLength(64)
   category?: string;
 
+  /** 市场二字码（US / DE / JP …）：命中 pd_spu.market_countries 任一元素。 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(4)
+  market?: string;
+
   @IsOptional()
   @Transform(({ value }) => (value === "" || value == null ? undefined : Number(value)))
   @IsIn(STATE_CODES)

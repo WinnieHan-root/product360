@@ -48,6 +48,8 @@ export interface ProductListItem {
 export interface ProductBreakdown {
   state: { code: number; label: string; count: number }[];
   coverage: { level: number; count: number }[];
+  /** 市场分布：只列真实出现的市场码（不补 0），不受 market 自身筛选收窄 */
+  markets: { code: string; count: number }[];
 }
 
 export interface ProductListResponse {

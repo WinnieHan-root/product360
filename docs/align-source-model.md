@@ -140,11 +140,12 @@ GET /api/meta/categories → { items: [{ code, name, spuCount }] }     // 一级
 ### 4.3 商品列表
 
 ```
-GET /api/products?q=&brand=&category=&state=&sort=coverage&page=1&pageSize=20
+GET /api/products?q=&brand=&category=&market=&state=&sort=coverage&page=1&pageSize=20
 ```
 
 `q`：精确优先命中 `spu_code` / `sku_code` / `asin` / 平台 SKU（`sal_sku_code.sale_sku_code`）；否则 `spu_name` / `spu_name_en` 模糊（`ILIKE %q%`）。
 `state`：`pd_spu.spu_state` 的 0/1/2/3/5。
+`market`：市场二字码，命中 `pd_spu.market_countries` 的任一元素（`= ANY(...)`）。空数组的 SPU 在任何市场筛选下都不命中；不传或传空串时不过滤。
 `sort`：`coverage`(默认) / `updateTime` / `sales30d` / `reviewCount`，均倒序，次级排序 `spuCode asc`。
 
 ```json
@@ -175,7 +176,8 @@ GET /api/products?q=&brand=&category=&state=&sort=coverage&page=1&pageSize=20
   "summary": { "total": 1000, "withDetail": 405, "fullCoverage": 35, "withSales": 112, "withReview": 76 },
   "breakdown": {
     "state": [{ "code": "0", "label": "开发中", "count": 154 }, { "code": "1", "label": "待上架", "count": 270 }],
-    "coverage": [{ "level": 0, "count": 571 }, { "level": 1, "count": 253 }]
+    "coverage": [{ "level": 0, "count": 571 }, { "level": 1, "count": 253 }],
+    "markets": [{ "code": "US", "count": 93 }, { "code": "CA", "count": 27 }]
   },
   "scope": { "mode": "all|brand|category|mixed|none", "brands": ["Momcozy"], "categories": [] }
 }
@@ -185,12 +187,14 @@ GET /api/products?q=&brand=&category=&state=&sort=coverage&page=1&pageSize=20
 - `sales30dUsd` 是商业敏感字段：`canViewCommercial=false` 时为 `{ status: "no_access", source: null, asOf: null, value: null }`（列表接口同样处理）。
 - `q` 的精确匹配两侧 `upper()` 归一，大小写不敏感但仍属精确匹配；未命中精确集才走 `ILIKE`（`\ % _` 已转义）。
 - `brand` / `category` 取 `GET /api/meta/*` 返回的 `code`。类目身份 = 一级类目编码，编码为空时退化为一级类目名称（样例中有 118 个 SPU 只有名称）。
-- `summary` 与 `breakdown` 全部**在同一过滤条件下统计**（`q` / `brand` / `category` / `state` 都会联动）：
+- `summary` 与 `breakdown` 全部**在同一过滤条件下统计**（`q` / `brand` / `category` / `market` / `state` 都会联动）：
   - `withDetail` = `coverage > 0` 的数量（「其中 N 个有明细」）。
   - `fullCoverage` = `coverage = 4`（SKU / 渠道 / 销量 / 口碑四项齐全）。
   - `withSales` = `sales_30d_usd IS NOT NULL`；`withReview` = `review_count > 0`。
   - 两个分布的总和恒等于 `summary.total`，缺桶补 0，前端不需要自己算比例。
 - `breakdown.state` 按 `spu_state` 分组，顺序固定为 0/1/2/3/5（枚举外的值排在末尾）；`breakdown.coverage` 按 `coverage` 0–4 分组。
+- `breakdown.markets` 由 `unnest(market_countries)` 聚合，按 `count desc` 排序，**只列真实出现的市场码、不补 0**（没出现就是没有该市场的商品）。
+  **唯一例外**：它不受 `market` 自身筛选收窄（否则选完只剩一个选项、无法切换），但其它筛选条件照常联动。`state` / `coverage` 仍吃完整 where，保持既有语义。
 - 这两个分布是**全量口径**，与当前页 20 条无关；列表页的「状态分布」图因此不会画出假分布。
 
 ### 4.4 概览页
