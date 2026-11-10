@@ -6,7 +6,6 @@ import type { CartonValue, DataStatus, PackagingValue, Variant } from "../api/ty
 import { DataValue, MetaLine } from "../components/DataValue";
 import { FieldBlock } from "../components/Field";
 import { KeyValueGrid } from "../components/KeyValueGrid";
-import { QualityBadge } from "../components/QualityBadge";
 import { SectionCard } from "../components/SectionCard";
 import { StateTag } from "../components/State";
 
@@ -72,6 +71,27 @@ function PackagingBlock({
   );
 }
 
+/** 字段接入只统计接口真实返回的状态，供头部状态卡和概览卡共用 */
+export function fieldCompleteness(data: {
+  fields?: { label: string; field: { status: DataStatus } }[];
+  tags?: { label: string; field: { status: DataStatus } }[];
+  packaging?: { product: { status: DataStatus }; carton: { status: DataStatus } };
+} | undefined) {
+  const packaging = data?.packaging;
+  const tracked = [
+    ...(data?.fields ?? []).map((item) => ({ label: item.label, status: item.field.status })),
+    ...(data?.tags ?? []).map((item) => ({ label: item.label, status: item.field.status })),
+    { label: "单品包装", status: packaging?.product.status ?? ("not_connected" as DataStatus) },
+    { label: "箱规", status: packaging?.carton.status ?? ("not_connected" as DataStatus) },
+  ];
+  const readyCount = tracked.filter(
+    (item) => item.status === "ready" || item.status === "delayed",
+  ).length;
+  const missing = tracked.filter((item) => item.status !== "ready" && item.status !== "delayed");
+  const percent = tracked.length ? Math.round((readyCount / tracked.length) * 100) : 0;
+  return { tracked, readyCount, missing, percent };
+}
+
 export function OverviewPage() {
   const { spu = "" } = useParams();
   const query = useQuery({
@@ -89,21 +109,7 @@ export function OverviewPage() {
 
   const data = query.data;
   const packaging = data?.packaging;
-
-  /** 完整度只看「字段是否真的拿到」，不引入规划外的新指标 */
-  const tracked = [
-    ...(data?.fields ?? []).map((item) => ({ label: item.label, status: item.field.status })),
-    ...(data?.tags ?? []).map((item) => ({ label: item.label, status: item.field.status })),
-    { label: "单品包装", status: packaging?.product.status ?? ("not_connected" as DataStatus) },
-    { label: "箱规", status: packaging?.carton.status ?? ("not_connected" as DataStatus) },
-  ];
-  const readyCount = tracked.filter(
-    (item) => item.status === "ready" || item.status === "delayed",
-  ).length;
-  const missing = tracked.filter(
-    (item) => item.status !== "ready" && item.status !== "delayed",
-  );
-  const percent = tracked.length ? Math.round((readyCount / tracked.length) * 100) : 0;
+  const { tracked, readyCount, missing, percent } = fieldCompleteness(data);
 
   const variants = data?.variants ?? [];
   const withCode = variants.filter((row) => row.codes.length > 0).length;
@@ -113,14 +119,9 @@ export function OverviewPage() {
 
   return (
     <div className="page-stack">
-      <div className="detail-grid">
-        <div className="detail-col">
-          <SectionCard
-            title="基础信息"
-            loading={query.isLoading}
-            extra={<QualityBadge quality={data?.quality} />}
-          >
-            <KeyValueGrid cols={3}>
+      <div className="detail-grid detail-grid--4">
+          <SectionCard title="基础信息" loading={query.isLoading}>
+            <KeyValueGrid cols={1}>
               {(data?.fields ?? []).map((item) => (
                 <FieldBlock key={item.key} label={item.label} field={item.field} />
               ))}
@@ -128,16 +129,13 @@ export function OverviewPage() {
           </SectionCard>
 
           <SectionCard title="标签" subtitle="类目 / 场景 / 系列" loading={query.isLoading}>
-            <KeyValueGrid cols={3}>
+            <KeyValueGrid cols={1}>
               {(data?.tags ?? []).map((item) => (
                 <FieldBlock key={item.key} label={item.label} field={item.field} />
               ))}
             </KeyValueGrid>
           </SectionCard>
 
-        </div>
-
-        <div className="detail-col">
           <SectionCard title="完整度与变体" loading={query.isLoading}>
             <div className="completeness">
               <div className="completeness__head">
@@ -207,9 +205,6 @@ export function OverviewPage() {
             />
             <MetaLine source={packaging?.carton.source} asOf={packaging?.carton.asOf} />
           </SectionCard>
-
-
-        </div>
       </div>
 
       <SectionCard

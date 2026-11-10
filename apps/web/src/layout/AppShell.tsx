@@ -1,6 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
 import { Input, Layout, Menu } from "antd";
 import { useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { fetchOverview } from "../api/client";
 
 import { useAuth } from "../auth";
 
@@ -12,6 +14,14 @@ export function AppShell() {
   const [keyword, setKeyword] = useState(params.get("q") ?? "");
   const navigate = useNavigate();
   const location = useLocation();
+  const spu = location.pathname.match(/^\/products\/([^/]+)/)?.[1];
+  const overview = useQuery({
+    queryKey: ["overview", spu ?? ""],
+    queryFn: () => fetchOverview(spu ?? ""),
+    enabled: Boolean(spu),
+    retry: false,
+  });
+  const masterAsOf = overview.data?.header.asOf;
 
   return (
     <Layout style={{ minHeight: "100vh", minWidth: 1280 }}>
@@ -52,6 +62,8 @@ export function AppShell() {
             }}
           />
           <div style={{ marginLeft: "auto", color: "var(--text-2)", fontSize: 13 }}>
+            {masterAsOf ? <span className="shell-asof">主数据 {masterAsOf}</span> : null}
+            <span style={{ marginLeft: masterAsOf ? 12 : 0 }}>
             {user?.name}
             {user && user.roleLabel !== user.name ? ` · ${user.roleLabel}` : ""}
             <a
@@ -63,6 +75,7 @@ export function AppShell() {
             >
               退出
             </a>
+            </span>
           </div>
         </Header>
         <Content id="app-content" style={{ padding: 24, overflow: "auto", height: "calc(100vh - 64px)" }}>

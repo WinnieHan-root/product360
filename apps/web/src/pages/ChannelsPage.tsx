@@ -3,8 +3,9 @@ import { Alert, Empty, Segmented, Tag, Table, Tooltip } from "antd";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { fetchChannels, fetchListings } from "../api/client";
-import type { ChannelRow, ListingItem } from "../api/types";
+import type { ChannelRow, ListingChannelStat, ListingItem } from "../api/types";
 import { DataValue, DelayNotice } from "../components/DataValue";
+
 import { MetricCard } from "../components/Field";
 import { MiniChart } from "../components/MiniChart";
 import { SectionCard } from "../components/SectionCard";
@@ -56,6 +57,51 @@ function ListingStatusTag({ status, raw }: { status: string | null; raw: string 
   return raw ? <Tooltip title={`源端原值：${raw}`}>{tag}</Tooltip> : tag;
 }
 
+/** 每个渠道取一条代表 listing：优先在线且有标题，避免把多店铺合成一条假标题 */
+function pickListing(items: ListingItem[], channel: string) {
+  const rows = items.filter((item) => item.channel === channel);
+  return (
+    rows.find((item) => item.listingStatus === "online" && item.title.value) ??
+    rows.find((item) => item.title.value) ??
+    rows[0]
+  );
+}
+
+function gapText(missing: ListingChannelStat["missing"]) {
+  const parts = [
+    missing.title ? `标题 ${missing.title}` : "",
+    missing.image ? `主图 ${missing.image}` : "",
+    missing.description ? `描述 ${missing.description}` : "",
+    missing.price ? `价格 ${missing.price}` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "无缺口";
+}
+
+function ListingContentCell({ item }: { item: ListingItem | undefined }) {
+  if (!item) return <span className="muted">—</span>;
+  const image = item.mainImageUrl.value;
+  return (
+    <div className="content-cell">
+      <div
+        className="content-cell__img"
+        style={image ? { backgroundImage: `url(${image})` } : undefined}
+      >
+        {image ? null : "无图"}
+      </div>
+      <div className="content-cell__title">{item.title.value ?? "无标题"}</div>
+      <ListingStatusTag status={item.listingStatus} raw={item.listingStatusRaw} />
+      <div className="content-cell__meta">{item.operatorName ?? "暂无负责人"}</div>
+      <DataValue
+        field={item.salePrice}
+        digits={2}
+        prefix={!item.currencyCode || item.currencyCode === "USD" ? "$" : `${item.currencyCode} `}
+        compact
+      />
+      <ContentDots flags={item.contentFlags} />
+    </div>
+  );
+}
+
 /** 渠道聚合只看公开行的真实数值，无权限行不参与求和 */
 function aggregateByChannel(rows: ChannelRow[] | undefined) {
   const map = new Map<
@@ -105,95 +151,7 @@ export function ChannelsPage() {
   const listingData = listings.data;
   const channels = aggregateByChannel(data?.rows);
 
-  /**
-   * 上架矩阵：行 = 指标，列 = 渠道。
-   * 不做「列 = 渠道×站点」——实测单个 SPU 最多 36 个组合（Shopify 重复上架），
-   * 那样的表格会溢出到不可读；站点改成单元格内缩略。
-   */
-  const matrixColumns = (listingData?.channels ?? []).map((item) => ({
-    title: (
-      <span className="matrix-channel">
-        {item.channel}
-        <small>
-          {item.sites.slice(0, 2).join(" · ")}
-          {item.sites.length > 2 ? ` +${item.sites.length - 2}` : ""}
-        </small>
-      </span>
-    ),
-    key: item.channel,
-    width: 124,
-    align: "right" as const,
-    render: (_: unknown, row: { key: string; values: Record<string, React.ReactNode> }) =>
-      row.values[item.channel] ?? <span className="muted">—</span>,
-  }));
-
-  const matrixRows = listingData
-    ? [
-        {
-          key: "listingCount",
-          label: "上架条目",
-          values: Object.fromEntries(
-            listingData.channels.map((item) => [item.channel, item.listingCount]),
-          ),
-        },
-        {
-          key: "onlineCount",
-          label: "在线",
-          values: Object.fromEntries(
-            listingData.channels.map((item) => [item.channel, item.onlineCount]),
-          ),
-        },
-        {
-          key: "sites",
-          label: "覆盖站点",
-          values: Object.fromEntries(
-            listingData.channels.map((item) => [item.channel, item.sites.length || "—"]),
-          ),
-        },
-        {
-          key: "shops",
-          label: "店铺数",
-          values: Object.fromEntries(
-            listingData.channels.map((item) => [item.channel, item.shops || "—"]),
-          ),
-        },
-        {
-          key: "contentAvg",
-          label: "内容均分",
-          values: Object.fromEntries(
-            listingData.channels.map((item) => [
-              item.channel,
-              item.contentAvg == null ? "—" : `${item.contentAvg}/5`,
-            ]),
-          ),
-        },
-        {
-          key: "fullContent",
-          label: "内容满分",
-          values: Object.fromEntries(
-            listingData.channels.map((item) => [
-              item.channel,
-              `${item.fullContentCount}/${item.listingCount}`,
-            ]),
-          ),
-        },
-        {
-          key: "missing",
-          label: "内容缺口",
-          values: Object.fromEntries(
-            listingData.channels.map((item) => {
-              const gap = [
-                item.missing.title ? `标题${item.missing.title}` : "",
-                item.missing.image ? `主图${item.missing.image}` : "",
-                item.missing.description ? `描述${item.missing.description}` : "",
-                item.missing.price ? `价格${item.missing.price}` : "",
-              ].filter(Boolean);
-              return [item.channel, gap.length ? gap.join(" / ") : "无"];
-            }),
-          ),
-        },
-      ]
-    : [];
+  const matrixChannels = listingData?.channels ?? [];
   const totalAmount = channels.reduce((sum, item) => sum + item.amount, 0);
   const blocked = channels.some((item) => item.blocked);
 
@@ -223,6 +181,91 @@ export function ChannelsPage() {
             />
           ))}
         </div>
+      </SectionCard>
+
+      <SectionCard
+        title="在线商品上架矩阵"
+        loading={listings.isLoading}
+        extra={
+          listingData ? (
+            <span className="section-note">
+              {listingData.counts.total} 条 listing · 覆盖 {listingData.channels.length} 个渠道
+            </span>
+          ) : null
+        }
+      >
+        {listingData ? (
+          <>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <Segmented
+                size="small"
+                value={listingStatus}
+                onChange={(value) => setListingStatus(String(value))}
+                options={LISTING_STATUS_OPTIONS.map((option) => ({
+                  ...option,
+                  label:
+                    option.value === "all"
+                      ? `全部 ${listingData.counts.total}`
+                      : `${option.label} ${
+                          listingData.counts[
+                            option.value as "online" | "offline" | "draft" | "deleted"
+                          ] ?? 0
+                        }`,
+                }))}
+              />
+              <span className="section-note">
+                默认只看在线。每列取一条有标题的 listing，站点多时记在列头，不按店铺拆列。
+              </span>
+            </div>
+
+            {matrixChannels.length ? (
+              <div className="matrix-split">
+                <div
+                  className={`content-matrix${
+                    matrixChannels.length > 4 ? " content-matrix--scroll" : ""
+                  }`}
+                >
+                  {matrixChannels.map((item) => (
+                    <div className="content-matrix__col" key={item.channel}>
+                      <span className="matrix-channel">
+                        {item.channel}
+                        <small>
+                          {item.listingCount} 条
+                          {item.sites.length
+                            ? ` · ${item.sites.slice(0, 2).join(" · ")}${
+                                item.sites.length > 2 ? ` +${item.sites.length - 2}` : ""
+                              }`
+                            : ""}
+                        </small>
+                      </span>
+                      <ListingContentCell item={pickListing(listingData.items, item.channel)} />
+                    </div>
+                  ))}
+                </div>
+                <aside className="gap-rail">
+                  <div className="gap-rail__title">内容缺口</div>
+                  {matrixChannels.map((item) => (
+                    <div className="gap-rail__row" key={item.channel}>
+                      <div className="gap-rail__name">{item.channel}</div>
+                      <div className="gap-rail__meta">{gapText(item.missing)}</div>
+                    </div>
+                  ))}
+                </aside>
+              </div>
+            ) : (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="该商品当前筛选下没有上架记录"
+              />
+            )}
+
+            <div className="matrix-foot">
+              <span>来源：{listingData.coverage.source}</span>
+              <span>数据日期：{listingData.coverage.asOf ?? "—"}</span>
+              <span>{listingData.coverage.note}</span>
+            </div>
+          </>
+        ) : null}
       </SectionCard>
 
       <div className="detail-grid">
@@ -315,90 +358,11 @@ export function ChannelsPage() {
             </div>
 
             <div className="section-note" style={{ marginTop: 8 }}>
-              本卡按渠道商品编码表统计，与下方上架矩阵（在线商品全渠道表）是两个数据源，渠道数可能不同。
+              本卡按渠道商品编码表统计，与上方上架矩阵（在线商品全渠道表）是两个数据源，渠道数可能不同。
             </div>
           </SectionCard>
         </div>
       </div>
-
-      <SectionCard
-        title="在线商品上架矩阵"
-        loading={listings.isLoading}
-        extra={
-          listingData ? (
-            <span className="section-note">
-              {listingData.counts.total} 条 listing · 覆盖 {listingData.channels.length} 个渠道
-            </span>
-          ) : null
-        }
-      >
-        {listingData ? (
-          <>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              <Segmented
-                size="small"
-                value={listingStatus}
-                onChange={(value) => setListingStatus(String(value))}
-                options={LISTING_STATUS_OPTIONS.map((option) => ({
-                  ...option,
-                  label:
-                    option.value === "all"
-                      ? `全部 ${listingData.counts.total}`
-                      : `${option.label} ${
-                          listingData.counts[
-                            option.value as "online" | "offline" | "draft" | "deleted"
-                          ] ?? 0
-                        }`,
-                }))}
-              />
-              <span className="section-note">
-                默认只看在线：下架商品的描述与主图本来就不维护，混在一起看内容完整度是噪声
-              </span>
-            </div>
-
-            {matrixRows.length && matrixColumns.length ? (
-              <div style={{ marginTop: 10 }}>
-                <Table
-                  className="listing-matrix"
-                  rowKey="key"
-                  size="small"
-                  pagination={false}
-                  showHeader
-                  tableLayout="fixed"
-                  dataSource={matrixRows}
-                  scroll={{ x: 104 + matrixColumns.length * 124 }}
-                  columns={[
-                    {
-                      title: "",
-                      dataIndex: "label",
-                      width: 104,
-                      fixed: "left",
-                      render: (value: string) => <span className="matrix-label">{value}</span>,
-                    },
-                    ...matrixColumns.map((column) => ({
-                      ...column,
-                      render: (_: unknown, row: { values: Record<string, React.ReactNode> }) => (
-                        <span className="matrix-cell">{row.values[column.key] ?? "—"}</span>
-                      ),
-                    })),
-                  ]}
-                />
-              </div>
-            ) : (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="该商品当前筛选下没有上架记录"
-              />
-            )}
-
-            <div className="matrix-foot">
-              <span>来源：{listingData.coverage.source}</span>
-              <span>数据日期：{listingData.coverage.asOf ?? "—"}</span>
-              <span>{listingData.coverage.note}</span>
-            </div>
-          </>
-        ) : null}
-      </SectionCard>
 
       <SectionCard
         title="在线商品明细"

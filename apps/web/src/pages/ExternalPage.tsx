@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Empty, Progress, Segmented, Table, Tag } from "antd";
+import { Alert, Empty, Segmented, Table, Tag } from "antd";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { fetchExternal } from "../api/client";
@@ -17,6 +17,7 @@ type Topic = ExternalResponse["tickets"]["topics"][number];
 type Competitor = ExternalResponse["competitors"]["rows"][number];
 
 const SENTIMENT_COLOR = ["#B42318", "#F04438", "#98A2B3", "#32A05F", "#1F8A4C"];
+const TOPIC_COLOR = ["#1F8A4C", "#3EA470", "#6FBF95", "#176C3B", "#32A05F", "#A6D5BB", "#067647", "#98A2B3"];
 
 /** 五档情感：一根横向分布条 + 计数行，一眼看出结构 */
 function SentimentBlock({ items }: { items: ExternalResponse["review"]["sentiments"] }) {
@@ -124,7 +125,7 @@ export function ExternalPage() {
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="窗口内暂无评论数据" />
             ) : (
               <TrendChart
-                height={196}
+                height={168}
                 labels={review.trend.labels}
                 series={[
                   { name: "评论数", data: review.trend.reviewCount, type: "bar", axis: 0 },
@@ -145,35 +146,38 @@ export function ExternalPage() {
           extra={review ? <MetaLine source={review.trend.source} asOf={review.trend.asOf} /> : null}
         >
           {review?.tags.length ? (
-            <Table
-              rowKey="tagName"
-              size="small"
-              pagination={false}
-              dataSource={review.tags.slice(0, 8)}
-              columns={[
-                {
-                  title: "主题",
-                  dataIndex: "tagName",
-                  render: (value: string) => <span className="cell-title">{value}</span>,
-                },
-                {
-                  title: "情感",
-                  dataIndex: "sentiment",
-                  width: 78,
-                  render: (value: string | null) =>
-                    value ? <Tag>{value}</Tag> : <StateTag status="empty" compact />,
-                },
-                { title: "提及", dataIndex: "count", width: 62, align: "right" },
-                {
-                  title: "占比",
-                  dataIndex: "ratio",
-                  width: 132,
-                  render: (value: number) => (
-                    <Progress percent={Math.round(value * 100)} size="small" strokeColor="#1F8A4C" />
-                  ),
-                },
-              ]}
-            />
+            <>
+              <DistributionBar
+                height={12}
+                items={review.tags.slice(0, 8).map((tag, index) => ({
+                  label: tag.tagName,
+                  value: tag.count,
+                  color: TOPIC_COLOR[index % TOPIC_COLOR.length],
+                  hint: `占比 ${(tag.ratio * 100).toFixed(1)}%`,
+                }))}
+              />
+              <Table
+                rowKey="tagName"
+                size="small"
+                pagination={false}
+                dataSource={review.tags.slice(0, 8)}
+                columns={[
+                  {
+                    title: "主题",
+                    dataIndex: "tagName",
+                    render: (value: string) => <span className="cell-title">{value}</span>,
+                  },
+                  {
+                    title: "情感",
+                    dataIndex: "sentiment",
+                    width: 78,
+                    render: (value: string | null) =>
+                      value ? <Tag>{value}</Tag> : <StateTag status="empty" compact />,
+                  },
+                  { title: "提及", dataIndex: "count", width: 62, align: "right" },
+                ]}
+              />
+            </>
           ) : (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无评论标签" />
           )}
@@ -191,6 +195,17 @@ export function ExternalPage() {
             ) : null
           }
         >
+          {(tickets?.topics.length ?? 0) > 0 ? (
+            <DistributionBar
+              height={12}
+              items={(tickets?.topics ?? []).slice(0, 8).map((topic, index) => ({
+                label: topic.topic,
+                value: topic.ticketCount,
+                color: TOPIC_COLOR[index % TOPIC_COLOR.length],
+                hint: `占比 ${(topic.ratio * 100).toFixed(1)}%`,
+              }))}
+            />
+          ) : null}
           <Table<Topic>
             rowKey={(row) => `${row.topic}-${row.vocType ?? ""}`}
             size="small"
@@ -211,14 +226,6 @@ export function ExternalPage() {
                   value ?? <StateTag status="empty" compact />,
               },
               { title: "工单", dataIndex: "ticketCount", width: 62, align: "right" },
-              {
-                title: "占比",
-                dataIndex: "ratio",
-                width: 132,
-                render: (value: number) => (
-                  <Progress percent={Math.round(value * 100)} size="small" strokeColor="#1F8A4C" />
-                ),
-              },
             ]}
           />
           {tickets ? (
@@ -242,7 +249,7 @@ export function ExternalPage() {
           size="small"
           dataSource={competitors?.rows ?? []}
           pagination={competitors && competitors.rows.length > 10 ? { pageSize: 10 } : false}
-          locale={{ emptyText: <Empty description="未匹配到该商品的竞品行" /> }}
+          locale={{ emptyText: <Empty description="未匹配到竞品" /> }}
           columns={[
             {
               title: "品牌",

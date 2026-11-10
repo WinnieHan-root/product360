@@ -9,7 +9,7 @@ export function KeyValueGrid({
   minWidth = 180,
   children,
 }: {
-  cols?: 2 | 3 | 4;
+  cols?: 1 | 2 | 3 | 4;
   minWidth?: number;
   children: ReactNode;
 }) {

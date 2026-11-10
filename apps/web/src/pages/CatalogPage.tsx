@@ -262,7 +262,7 @@ export function CatalogPage() {
 
       <div className="chart-band">
         <SectionCard title="状态分布" subtitle={`同当前筛选 · 共 ${summary?.total ?? 0}`}>
-          <MiniChart kind="donut" data={stateData} height={116} />
+          <MiniChart kind="donut" data={stateData} height={96} />
         </SectionCard>
         <SectionCard title="数据覆盖度" subtitle="SKU / 渠道 / 销量 / 口碑">
           <div style={{ paddingTop: 6 }}>
@@ -275,7 +275,7 @@ export function CatalogPage() {
           </div>
         </SectionCard>
         <SectionCard title="品牌分布" subtitle="Top 6 · 权限范围">
-          <MiniChart kind="hbar" data={topBrands} height={116} />
+          <MiniChart kind="hbar" data={topBrands} height={96} />
         </SectionCard>
       </div>
 
@@ -301,7 +301,7 @@ export function CatalogPage() {
             {
               title: "商品",
               dataIndex: "spuName",
-              width: 236,
+              width: 220,
             render: (_, row) => (
               <div style={{ display: "flex", gap: 10, minWidth: 0 }}>
                 <div
@@ -327,16 +327,18 @@ export function CatalogPage() {
                     ) : null}
                   </div>
                   <Tooltip title={row.spuNameEn ?? ""}>
-                    <div className="cell-sub">{row.spuNameEn ?? "无英文名"}</div>
+                    <div className="cell-sub">
+                      {row.spuNameEn ?? "无英文名"}
+                      <span className="num"> · {row.spuCode}</span>
+                    </div>
                   </Tooltip>
-                  <div className="cell-sub">{row.spuCode}</div>
                 </div>
               </div>
             ),
           },
           {
             title: "品牌 / 类目",
-            width: 132,
+            width: 116,
             render: (_, row) => (
               <div>
                 <div className="cell-title">{row.brandCode ?? <StateTag status="empty" compact />}</div>
@@ -348,12 +350,12 @@ export function CatalogPage() {
           },
           {
             title: "状态",
-            width: 74,
+            width: 68,
             render: (_, row) => <Tag color={STATE_COLOR[row.spuState]}>{row.spuStateLabel}</Tag>,
           },
           {
             title: "生命周期",
-            width: 84,
+            width: 72,
             render: (_, row) =>
               row.lifecycleStageLabel ? (
                 <Tag color={LIFECYCLE_TAG_COLOR[row.lifecycleStage ?? ""] ?? "default"}>
@@ -365,7 +367,7 @@ export function CatalogPage() {
           },
           {
             title: "SKU / 渠道",
-            width: 88,
+            width: 72,
             align: "right",
             render: (_, row) => (
               <Tooltip title={`${row.skuCount} 个 SKU · ${row.channelCount} 个渠道`}>
@@ -377,7 +379,7 @@ export function CatalogPage() {
           },
           {
             title: "市场",
-            width: 90,
+            width: 68,
             render: (_, row) =>
               row.marketCountries.length ? (
                 <Tooltip title={row.marketCountries.join("、")}>
@@ -392,23 +394,23 @@ export function CatalogPage() {
           },
           {
             title: "近 30 天销售额",
-            width: 112,
+            width: 96,
             align: "right",
             render: (_, row) => <DataValue field={row.sales30dUsd} digits={2} prefix="$" compact />,
           },
-          { title: "评论", dataIndex: "reviewCount", width: 56, align: "right" },
-          { title: "覆盖度", width: 88, render: (_, row) => <CoverageCell row={row} /> },
+          { title: "评论", dataIndex: "reviewCount", width: 48, align: "right" },
+          { title: "覆盖度", width: 76, render: (_, row) => <CoverageCell row={row} /> },
           {
             title: "更新时间",
             dataIndex: "updateTime",
-            width: 80,
+            width: 64,
             render: (value: string | null) => (
               <span className="num">{value ? value.slice(5, 10) : "—"}</span>
             ),
           },
           {
             title: "操作",
-            width: 52,
+            width: 44,
             render: (_, row) => (
               <Button
                 type="link"
@@ -423,7 +425,7 @@ export function CatalogPage() {
             ),
           },
         ]}
-          scroll={{ x: 1092 }}
+          scroll={{ x: 944 }}
         />
       </SectionCard>
     </div>

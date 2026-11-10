@@ -2,22 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Alert, Card, Tag, Tabs, Typography } from "antd";
 import { Link, Outlet, useLocation, useParams } from "react-router-dom";
 import { fetchOverview } from "../api/client";
-import { DataValue, MetaLine } from "../components/DataValue";
-
-function HeadStat({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="head-stat">
-      <div className="head-stat__label">{label}</div>
-      <div className="head-stat__value">{children}</div>
-    </div>
-  );
-}
+import { MetaLine } from "../components/DataValue";
+import { QualityBadge } from "../components/QualityBadge";
+import { fieldCompleteness } from "./OverviewPage";
 
 export function ProductLayout() {
   const { spu = "" } = useParams();
@@ -35,7 +22,7 @@ export function ProductLayout() {
       : "overview";
 
   const header = query.data?.header;
-  const metrics = header?.metrics;
+  const completeness = fieldCompleteness(query.data);
 
   return (
     <div className="page-stack">
@@ -92,23 +79,26 @@ export function ProductLayout() {
               </div>
             </div>
 
-            {/* 跨页签指标带：三个页签都能看到的同一组经营摘要 */}
-            {metrics ? (
-              <div className="head-metrics">
-                <HeadStat label="近 30 天销售额">
-                  <DataValue field={metrics.sales30dUsd} digits={2} prefix="$" />
-                </HeadStat>
-                <HeadStat label="星级均值">
-                  <DataValue field={metrics.ratingAvg} digits={2} />
-                </HeadStat>
-                <HeadStat label="SKU / 渠道">
-                  <span className="num">
-                    <DataValue field={metrics.skuCount} /> ·{" "}
-                    <DataValue field={metrics.channelCount} />
-                  </span>
-                </HeadStat>
+            <div className="head-status">
+              <div className="head-status__card">
+                <div className="head-status__label">字段接入</div>
+                <div className="head-status__value num">{completeness.percent}%</div>
+                <div className="head-status__sub num">
+                  {completeness.readyCount}/{completeness.tracked.length}
+                </div>
               </div>
-            ) : null}
+              <div className="head-status__card">
+                <div className="head-status__label">缺失项</div>
+                <div className="head-status__value num">{completeness.missing.length}</div>
+                <div className="head-status__sub">
+                  {completeness.missing.length ? "见下方完整度" : "字段均已接入"}
+                </div>
+              </div>
+              <div className="head-status__card">
+                <div className="head-status__label">质量检查</div>
+                <QualityBadge quality={query.data?.quality} />
+              </div>
+            </div>
           </div>
         )}
       </Card>
