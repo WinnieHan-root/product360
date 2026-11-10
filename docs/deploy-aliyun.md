@@ -604,6 +604,40 @@ ALTER TABLE p360_pd_spu
 5. Dataphin 集成任务 — 如果是「按列名映射」，要把新列加进映射列表；如果是 `SELECT *` 会错位，**不要用 `SELECT *`**
 6. `prisma db push` 会自动建索引（`@@index`），但 PG 侧生产库要靠部署时跑 `db push`，不是手工 ALTER
 
+### 13.3.2 补 PG 表/列注释（`00_pg_comments.sql`）
+
+Prisma 里的 `///` **不会写进数据库**。不跑这个文件，`\d+ pd_spu` 的 Description 列全是空的，
+在 psql 里排查时得回去翻代码。
+
+```bash
+cd /data/product360
+docker exec -i product360-postgres psql -U product360 -d product360 \
+  < sql/dataphin/00_pg_comments.sql
+```
+
+- **幂等**：`COMMENT ON` 是覆盖语义，跑一百次结果一样，可以放进每次发版流程。
+- **纯元数据**：不改数据、不加锁、不影响 Prisma、不影响 Dataphin 集成任务。
+- **什么时候**：首次建表后、`prisma db push` 新建过表之后。老表注释还在，跑也不会有副作用。
+- **别手改这个文件**：它由 `01_sr_tables.sql` 的 `COMMENT` 派生，两者同源。要改注释改 01 再重新生成，
+  否则 SR 和 PG 的说法会漂移。
+
+校验（每张表 `commented` 应等于 `total`）：
+
+```bash
+docker exec -it product360-postgres psql -U product360 -d product360 -c "
+SELECT c.relname,
+       count(a.attname) FILTER (WHERE col_description(c.oid, a.attnum) IS NOT NULL) AS commented,
+       count(a.attname) AS total
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+WHERE n.nspname = 'public' AND c.relkind = 'r'
+GROUP BY c.relname, c.oid ORDER BY c.relname;"
+```
+
+期望：12 张业务表全部 `commented = total`（`pd_spu` 63、`pd_sku` 36、`sal_sku_online_listing` 32 等）。
+`users` / `user_scopes` 不在范围内，它们由 Prisma 维护、看 `schema.prisma`。
+
 ### 13.4 同步后验收
 
 ```bash

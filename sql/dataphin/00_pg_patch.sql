@@ -29,7 +29,7 @@ ALTER TABLE sync_batch           ALTER COLUMN id SET DEFAULT gen_random_uuid();
 SELECT table_name, column_default
 FROM information_schema.columns
 WHERE table_schema = 'public' AND column_name = 'id'
-  AND table_name IN ('pd_spu','pd_sku','sal_sku_code','sal_sku_day','scm_stock',
-                     'voc_review_day','voc_nps_sentiment','voc_nps_tag',
+  AND table_name IN ('pd_spu','pd_sku','sal_sku_code','sal_sku_online_listing','sal_sku_day',
+                     'scm_stock','voc_review_day','voc_nps_sentiment','voc_nps_tag',
                      'voc_ticket_topic','voc_competitor','sync_batch')
 ORDER BY table_name;

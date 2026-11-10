@@ -33,6 +33,7 @@ PG public.*（NestJS API 直接读，页面出数）
 | 顺序 | 文件 | 产出 | 依赖 |
 |---|---|---|---|
 | 0（一次性） | `00_pg_patch.sql` | **在 PG 上执行**：12 张表 `id` 列加 `DEFAULT gen_random_uuid()` | 无 |
+| 0（可选，幂等） | `00_pg_comments.sql` | **在 PG 上执行**：12 张表 + 233 列补 `COMMENT ON`，让 `\d+` 能看懂 | 表已建好 |
 | 0（一次性） | `01_sr_tables.sql` | 在 SR 上建 12 张 `p360_*` 中间表 | 无 |
 | 1 | `10_pd_sku.sql` | `p360_pd_sku` | 源表 `dim_pd_sku_info_df` |
 | 2 | `20_sal_sku_code.sql` | `p360_sal_sku_code` | 源表 `dim_sal_sku_info_df` |
@@ -134,6 +135,37 @@ ERROR: duplicate key value violates unique constraint "pd_sku_sku_code_key"
 > 如果工具支持事务，把 `TRUNCATE + INSERT` 包在一个事务里更好（避免清空后写入失败导致页面空白）。
 
 ---
+
+## 3.3 表/列注释（`00_pg_comments.sql`）
+
+Prisma schema 里的 `///` 只是**代码文档，不会写进数据库**，所以不跑这个文件时 `\d+ pd_spu` 的 Description 列是空的，
+运维在 psql 里排查得回去翻代码。
+
+```bash
+psql "$DATABASE_URL" -f sql/dataphin/00_pg_comments.sql   # 幂等，可重复执行
+```
+
+- **内容与 `01_sr_tables.sql` 的 `COMMENT` 同源**：该文件由 01 自动派生。要改注释请改 01 再重新生成，
+  **不要直接改 00_pg_comments.sql**，否则 SR 和 PG 两边的说法会漂移。
+- **纯元数据**：不改数据、不加锁、不影响 Prisma、不影响集成任务。
+- **可反复执行**：`COMMENT ON` 是覆盖语义，且不改表结构，不存在「跑两次报错」。
+- **什么时候要重跑**：`prisma db push` 新建过表之后（旧表注释仍在，新表没有）。
+
+校验（文件末尾也带了同样的查询，每张表两列应该相等）：
+
+```sql
+SELECT c.relname,
+       count(a.attname) FILTER (WHERE col_description(c.oid, a.attnum) IS NOT NULL) AS commented,
+       count(a.attname) AS total
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+WHERE n.nspname = 'public' AND c.relkind = 'r'
+GROUP BY c.relname, c.oid ORDER BY c.relname;
+```
+
+**已知现状**：`users` / `user_scopes` 两张账户表不在这个文件里 —— 它们是 Prisma 自己维护的，
+列也少，需要的直接看 `schema.prisma`。
 
 ## 4. `00_pg_patch.sql` 为什么必须跑
 
