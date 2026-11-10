@@ -674,3 +674,134 @@ FROM sync_batch ORDER BY source_table;"
 | `datasource's schema: product360 not exist` | Dataphin 的「Schema」填成了库名 | Schema 填 `public` 或留空；JDBC 写 `jdbc:postgresql://<IP>:5432/product360` |
 | `duplicate key value violates unique constraint "pd_sku_sku_code_key"` | 用了 upsert 且冲突键填 `id`（uuid 永不命中） | 改全量覆盖 |
 | `there is no unique or exclusion constraint matching the ON CONFLICT specification` | `sal_sku_code` / `sal_sku_day` / `scm_stock` / `sync_batch` 没有唯一约束 | 同上，这几张表根本不可能 upsert |
+
+---
+
+## 14. PG 5432 公网直连（持久化配置）
+
+Dataphin / 外部同步程序不在同一 VPC 时需要直连宿主机 5432。这里有一个**每次发版都会踩**的坑，单独成节。
+
+### 14.1 为什么主 compose 文件里看不到 5432
+
+`deploy/docker-compose.prod.yml` 的 postgres 只有：
+
+```yaml
+expose:
+  - "5432"
+```
+
+`expose` 只在**容器网络内部**可用，宿主机不监听。所以外部连上来是 `Connection refused`。
+
+> `refused`（TCP RST）和 `timeout`（丢包）要分清：
+> `refused` = 网络通了、端口没开；`timeout` = 安全组/防火墙拦了。
+> 定位方向完全不同，别一看到连不上就去改安全组。
+
+要对外必须叠加 `deploy/docker-compose.pg-public.yml`，它只做一件事：
+
+```yaml
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+```
+
+### 14.2 坑：发版会把端口撤掉
+
+`scripts/release.sh` 第 3 步是 `$COMPOSE up -d --remove-orphans`。如果 `$COMPOSE` 里没有
+`-f docker-compose.pg-public.yml`，compose 会认为 postgres 就应该「只 expose」，
+于是**重建容器、撤掉 publish**，`0.0.0.0:5432->5432/tcp` 变回 `5432/tcp`，
+Dataphin 下一次同步立刻 `Connection refused`。
+
+手工跑 `docker compose -f deploy/docker-compose.prod.yml up -d` 同理。
+
+### 14.3 持久化开关：`.env` 里 `PG_PUBLIC=1`
+
+`scripts/release.sh` 已支持，读到即自动叠加，发版不再回退：
+
+```bash
+# deploy/.env
+PG_PUBLIC=1
+```
+
+启动日志会多一行 `==> PG 公网直连已启用（5432 发布到 0.0.0.0）`。
+
+`PG_PUBLIC=0` 或不写 = 不发布（默认，最安全）。
+
+### 14.4 首次开启
+
+```bash
+cd /data/product360/deploy
+
+# 1) 打开开关（或手工编辑 .env）
+sed -i 's|^PG_PUBLIC=.*|PG_PUBLIC=1|' .env
+grep -n PG_PUBLIC .env
+
+# 2) 重建 postgres 让端口生效
+docker compose -f docker-compose.prod.yml -f docker-compose.pg-public.yml up -d --force-recreate postgres
+```
+
+`--force-recreate` 不能省：compose 有时判定「容器已最新」而跳过重建，端口就不会变。
+数据在 named volume `product360_pg` 里，重建容器不丢数据。
+
+### 14.5 验证
+
+```bash
+docker ps --format '{{.Names}}\t{{.Ports}}' | grep postgres
+```
+
+```text
+0.0.0.0:5432->5432/tcp, 5432/tcp     # ← 正确，前半段是关键
+5432/tcp                             # ← 错误，没发布
+```
+
+```bash
+ss -lntp | grep 5432                 # 期望 0.0.0.0:5432 的 LISTEN
+```
+
+外部连通性（在 ECS 上用公网 IP 绕一圈，同时验证安全组）：
+
+```bash
+docker run --rm -e PGPASSWORD='<密码>' postgres:16 \
+  psql -h <ECS公网IP> -U product360 -d product360 -c 'select count(*) from pd_spu;'
+```
+
+| 结果 | 含义 |
+|---|---|
+| 返回行数 | 通了，Dataphin 可重试连接 |
+| `timeout` | 安全组没放行，或授权对象 IP 填错 |
+| `refused` | 端口没发布，回 14.4 |
+| `password authentication failed` | `.env` 里的密码与库里的实际密码不一致 |
+
+### 14.6 撤销（回到只 expose）
+
+```bash
+cd /data/product360/deploy
+sed -i 's|^PG_PUBLIC=.*|PG_PUBLIC=0|' .env
+docker compose -f docker-compose.prod.yml up -d --force-recreate postgres
+```
+
+`prod.yml` 里没有 `ports`，不带覆盖文件重建就会撤掉发布。
+
+### 14.7 安全底线
+
+只要 5432 对公网开放，下面三条是**必须项**，不是建议：
+
+| 项 | 要求 | 现状 |
+|---|---|---|
+| 源 IP 白名单 | 安全组入方向 5432 授权对象必须是同步方**出口 IP /32**，不能 `0.0.0.0/0`。Docker publish 绕过 ufw，安全组是唯一管控点 | 必须配 |
+| 强密码 | 不能用初始值 `product360`（在公开 GitHub 仓库里）。`ALTER USER` 改 24 位以上随机串 → 同步 `.env` 的 `POSTGRES_PASSWORD` → `up -d --no-deps --force-recreate api` | **待补** |
+| 传输加密 | 默认无 TLS，数据明文过公网。长期方案 `ssl=on` + 自签证书 + 客户端 `sslmode=require` | 待评估 |
+
+> 首次开启时密码仍是初始值，**白名单是唯一防线**，应尽快补强密码。
+>
+> 若 Dataphin 与 ECS 在同一 VPC：改用私网 IP（`ip addr` 里 `172.x` 那段）+ 安全组授权
+> VPC 网段，不开公网、不花钱、延迟更低，比本节的公网方案安全得多。
+
+改密码后的验证：
+
+```bash
+docker exec product360-api wget -qO- http://127.0.0.1:3000/api/health
+# 期望 {"status":"ok","products":1067}；500 说明 api 还没拿到新密码
+```
+
+详见 `docs/network-ports.md` §2 方案 B。

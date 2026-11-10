@@ -18,6 +18,15 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
+# PG 公网直连（deploy/.env 里 PG_PUBLIC=1）：必须一路叠加 pg-public.yml。
+# 否则下面第 3 步的 up -d --remove-orphans 会把 postgres 从 "0.0.0.0:5432->5432/tcp"
+# 重建回只 expose 的状态，Dataphin / 外部同步程序的写入会立刻 Connection refused。
+# 详见 docs/deploy-aliyun.md §14、docs/network-ports.md §2 方案 B。
+if grep -qE '^PG_PUBLIC=1' .env 2>/dev/null; then
+  COMPOSE="$COMPOSE -f docker-compose.pg-public.yml"
+  echo "==> PG 公网直连已启用（5432 发布到 0.0.0.0）"
+fi
+
 echo "==> 1/5 构建镜像（首次会装依赖，约 3-6 分钟）"
 $COMPOSE build
 

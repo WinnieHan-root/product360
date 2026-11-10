@@ -79,6 +79,13 @@ docker compose -f deploy/docker-compose.prod.yml -f deploy/docker-compose.pg-pub
 docker ps --format '{{.Names}}\t{{.Ports}}' | grep postgres   # 期望 0.0.0.0:5432->5432/tcp
 ```
 
+> ⚠️ **发版会把端口撤掉**：`scripts/release.sh` 第 3 步是 `up -d --remove-orphans`，
+> 如果 `-f` 列表里没有 `pg-public.yml`，compose 会认为 postgres 应该「只 expose」，
+> 于是重建容器、撤掉 publish，外部同步立刻 `Connection refused`。
+> 已加持久化开关：`deploy/.env` 里 `PG_PUBLIC=1` 时 `release.sh` 自动叠加。
+> 手工执行 `docker compose` 时仍须自己带 `-f deploy/docker-compose.pg-public.yml`。
+> 详见 `docs/deploy-aliyun.md` §14。
+
 必须同时满足：
 
 | 要求 | 做法 |

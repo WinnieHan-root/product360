@@ -239,6 +239,11 @@ sleep 20
 docker compose -f deploy/docker-compose.prod.yml ps
 ```
 
+> 如果这台机开了 PG 公网直连（`deploy/.env` 里 `PG_PUBLIC=1`），上面的 `up -d` 会把
+> postgres 重建回只 expose 的状态，5432 端口消失。请改用 `bash scripts/release.sh`
+> （它会读 `PG_PUBLIC` 自动叠加 `-f deploy/docker-compose.pg-public.yml`），
+> 或手工补 `-f deploy/docker-compose.pg-public.yml`。详见 `docs/deploy-aliyun.md` §14。
+
 **期望**
 
 ```
