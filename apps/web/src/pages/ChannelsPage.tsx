@@ -77,42 +77,38 @@ function gapText(missing: ListingChannelStat["missing"]) {
   return parts.length ? parts.join(" · ") : "无缺口";
 }
 
-function ListingContentCell({ item }: { item: ListingItem | undefined }) {
-  if (!item) return <span className="muted">—</span>;
-  const image = item.mainImageUrl.value;
-  return (
-    <div className="content-cell">
-      <div
-        className="content-cell__img"
-        style={image ? { backgroundImage: `url(${image})` } : undefined}
-      >
-        {image ? null : "无图"}
-      </div>
-      <div className="content-cell__title">{item.title.value ?? "无标题"}</div>
-      <ListingStatusTag status={item.listingStatus} raw={item.listingStatusRaw} />
-      <div className="content-cell__meta">{item.operatorName ?? "暂无负责人"}</div>
-      <DataValue
-        field={item.salePrice}
-        digits={2}
-        prefix={!item.currencyCode || item.currencyCode === "USD" ? "$" : `${item.currencyCode} `}
-        compact
-      />
-      <ContentDots flags={item.contentFlags} />
-    </div>
-  );
+/** contentAvg 是 0~5 的均值，换算成百分比时标注原值，不丢精度也不假装是实测百分比 */
+function contentPercent(avg: number | null) {
+  if (avg == null) return null;
+  return { percent: Math.round((avg / 5) * 100), raw: avg };
 }
 
 /** 渠道聚合只看公开行的真实数值，无权限行不参与求和 */
 function aggregateByChannel(rows: ChannelRow[] | undefined) {
   const map = new Map<
     string,
-    { name: string; amount: number; skus: number; inStock: number; blocked: boolean; live: number }
+    {
+      key: string;
+      name: string;
+      amount: number;
+      skus: number;
+      inStock: number;
+      blocked: boolean;
+      live: number;
+    }
   >();
   for (const row of rows ?? []) {
     const key = row.channel;
     const current =
-      map.get(key) ??
-      { name: row.channelName ?? row.channel, amount: 0, skus: 0, inStock: 0, blocked: false, live: 0 };
+      map.get(key) ?? {
+        key,
+        name: row.channelName ?? row.channel,
+        amount: 0,
+        skus: 0,
+        inStock: 0,
+        blocked: false,
+        live: 0,
+      };
     current.skus += 1;
     if (row.salesAmountUsd.status === "no_access" || row.inStockQty.status === "no_access") {
       current.blocked = true;
@@ -158,38 +154,13 @@ export function ChannelsPage() {
   return (
     <div className="page-stack">
       <SectionCard
-        loading={query.isLoading}
-        title={data ? `近 ${data.window.days} 天` : "经营数据"}
-        subtitle={data ? `${data.window.from} ~ ${data.window.to}` : null}
-        extra={
-          <Segmented
-            value={days}
-            options={DAY_OPTIONS.map((value) => ({ value, label: `${value} 天` }))}
-            onChange={(value) => setDays(Number(value))}
-          />
-        }
-      >
-        <DelayNotice statuses={(data?.summary ?? []).map((item) => item.field.status)} />
-        <div className="metric-row">
-          {(data?.summary ?? []).map((item) => (
-            <MetricCard
-              key={item.key}
-              label={item.label}
-              field={item.field}
-              digits={item.key === "salesAmountUsd" ? 2 : 0}
-              prefix={item.key === "salesAmountUsd" ? "$" : ""}
-            />
-          ))}
-        </div>
-      </SectionCard>
-
-      <SectionCard
-        title="在线商品上架矩阵"
+        title="商品全渠道对比"
         loading={listings.isLoading}
         extra={
           listingData ? (
             <span className="section-note">
-              {listingData.counts.total} 条 listing · 覆盖 {listingData.channels.length} 个渠道
+              {listingData.counts.total} 条 listing · 在线 {listingData.counts.online} · 覆盖{" "}
+              {listingData.channels.length} 个渠道
             </span>
           ) : null
         }
@@ -220,36 +191,225 @@ export function ChannelsPage() {
 
             {matrixChannels.length ? (
               <div className="matrix-split">
-                <div
-                  className={`content-matrix${
-                    matrixChannels.length > 4 ? " content-matrix--scroll" : ""
-                  }`}
-                >
-                  {matrixChannels.map((item) => (
-                    <div className="content-matrix__col" key={item.channel}>
-                      <span className="matrix-channel">
-                        {item.channel}
-                        <small>
-                          {item.listingCount} 条
-                          {item.sites.length
-                            ? ` · ${item.sites.slice(0, 2).join(" · ")}${
+                <div className="metric-matrix-wrap">
+                  <table className="metric-matrix">
+                    <thead>
+                      <tr>
+                        <th className="metric-matrix__rowhead">对比项</th>
+                        {matrixChannels.map((item) => {
+                          const pick = pickListing(listingData.items, item.channel);
+                          const name =
+                            channels.find((entry) => entry.key === item.channel)?.name ??
+                            item.channel;
+                          const siteText = item.sites.length
+                            ? `${item.sites.slice(0, 2).join(" / ")}${
                                 item.sites.length > 2 ? ` +${item.sites.length - 2}` : ""
                               }`
-                            : ""}
-                        </small>
-                      </span>
-                      <ListingContentCell item={pickListing(listingData.items, item.channel)} />
-                    </div>
-                  ))}
+                            : "";
+                          const sub = [pick?.shopCode, siteText].filter(Boolean).join(" · ");
+                          return (
+                            <th key={item.channel}>
+                              <div className="matrix-head">
+                                <span className="matrix-head__name">{name}</span>
+                                {sub ? <span className="matrix-head__meta">{sub}</span> : null}
+                                <span className="matrix-head__meta num">
+                                  {item.listingCount} 条 · 在线 {item.onlineCount}
+                                </span>
+                              </div>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <th className="metric-matrix__rowhead">上架状态</th>
+                        {matrixChannels.map((item) => {
+                          const pick = pickListing(listingData.items, item.channel);
+                          return (
+                            <td key={item.channel}>
+                              {pick ? (
+                                <ListingStatusTag
+                                  status={pick.listingStatus}
+                                  raw={pick.listingStatusRaw}
+                                />
+                              ) : (
+                                <span className="muted">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      <tr>
+                        <th className="metric-matrix__rowhead">当前价格</th>
+                        {matrixChannels.map((item) => {
+                          const pick = pickListing(listingData.items, item.channel);
+                          return (
+                            <td key={item.channel}>
+                              {pick ? (
+                                <DataValue
+                                  field={pick.salePrice}
+                                  digits={2}
+                                  prefix={
+                                    !pick.currencyCode || pick.currencyCode === "USD"
+                                      ? "$"
+                                      : `${pick.currencyCode} `
+                                  }
+                                />
+                              ) : (
+                                <span className="muted">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      <tr>
+                        <th className="metric-matrix__rowhead">库存</th>
+                        {matrixChannels.map((item) => {
+                          const stock = channels.find((entry) => entry.key === item.channel);
+                          return (
+                            <td key={item.channel} className="num">
+                              {stock && stock.inStock > 0 ? (
+                                stock.inStock.toLocaleString()
+                              ) : (
+                                <span className="muted">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      <tr>
+                        <th className="metric-matrix__rowhead">商品标题</th>
+                        {matrixChannels.map((item) => {
+                          const pick = pickListing(listingData.items, item.channel);
+                          const title = pick?.title.value;
+                          return (
+                            <td key={item.channel}>
+                              {title ? (
+                                <span className="metric-matrix__text" title={title}>
+                                  {title}
+                                </span>
+                              ) : (
+                                <span className="muted">无标题</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      <tr>
+                        <th className="metric-matrix__rowhead">副标题 / 描述</th>
+                        {matrixChannels.map((item) => {
+                          const pick = pickListing(listingData.items, item.channel);
+                          const summary = pick?.descriptionSummary.value;
+                          return (
+                            <td key={item.channel}>
+                              {summary ? (
+                                <span className="metric-matrix__text" title={summary}>
+                                  {summary}
+                                </span>
+                              ) : (
+                                <span className="muted">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      <tr>
+                        <th className="metric-matrix__rowhead">内容完整度</th>
+                        {matrixChannels.map((item) => {
+                          const value = contentPercent(item.contentAvg);
+                          return (
+                            <td key={item.channel}>
+                              {value ? (
+                                <div className="matrix-meter">
+                                  <span className="matrix-meter__value num">
+                                    {value.raw}
+                                    <small> / 5</small>
+                                  </span>
+                                  <span className="matrix-meter__bar">
+                                    <i style={{ width: `${value.percent}%` }} />
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="muted">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      <tr>
+                        <th className="metric-matrix__rowhead">内容标记</th>
+                        {matrixChannels.map((item) => {
+                          const pick = pickListing(listingData.items, item.channel);
+                          return (
+                            <td key={item.channel}>
+                              {pick ? (
+                                <ContentDots flags={pick.contentFlags} />
+                              ) : (
+                                <span className="muted">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      <tr>
+                        <th className="metric-matrix__rowhead">负责人</th>
+                        {matrixChannels.map((item) => {
+                          const pick = pickListing(listingData.items, item.channel);
+                          return (
+                            <td key={item.channel}>
+                              {pick?.operatorName ?? <span className="muted">未指定</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      <tr>
+                        <th className="metric-matrix__rowhead">内容缺口</th>
+                        {matrixChannels.map((item) => {
+                          const gaps =
+                            item.missing.title +
+                            item.missing.image +
+                            item.missing.description +
+                            item.missing.price;
+                          return (
+                            <td key={item.channel}>
+                              <span className={gaps ? "text-warn" : "muted"}>
+                                {gapText(item.missing)}
+                              </span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
                 <aside className="gap-rail">
-                  <div className="gap-rail__title">内容缺口</div>
-                  {matrixChannels.map((item) => (
-                    <div className="gap-rail__row" key={item.channel}>
-                      <div className="gap-rail__name">{item.channel}</div>
-                      <div className="gap-rail__meta">{gapText(item.missing)}</div>
+                  <div className="gap-rail__title">在售状态概览</div>
+                  {(["online", "offline", "draft", "deleted"] as const).map((key) => {
+                    const count = listingData.counts[key] ?? 0;
+                    const percent = listingData.counts.total
+                      ? Math.round((count / listingData.counts.total) * 100)
+                      : 0;
+                    return (
+                      <div className="gap-rail__row" key={key}>
+                        <div className="gap-rail__name">{LISTING_STATUS_META[key].label}</div>
+                        <div className="gap-rail__meta num">
+                          {count} 条 · {percent}%
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="gap-rail__title gap-rail__title--sub">渠道覆盖</div>
+                  <div className="gap-rail__row">
+                    <div className="gap-rail__name">渠道数</div>
+                    <div className="gap-rail__meta num">{listingData.channels.length}</div>
+                  </div>
+                  <div className="gap-rail__row">
+                    <div className="gap-rail__name">有在线 listing</div>
+                    <div className="gap-rail__meta num">
+                      {listingData.channels.filter((entry) => entry.onlineCount > 0).length}
                     </div>
-                  ))}
+                  </div>
                 </aside>
               </div>
             ) : (
@@ -266,6 +426,32 @@ export function ChannelsPage() {
             </div>
           </>
         ) : null}
+      </SectionCard>
+
+      <SectionCard
+        loading={query.isLoading}
+        title={data ? `近 ${data.window.days} 天` : "经营数据"}
+        subtitle={data ? `${data.window.from} ~ ${data.window.to}` : null}
+        extra={
+          <Segmented
+            value={days}
+            options={DAY_OPTIONS.map((value) => ({ value, label: `${value} 天` }))}
+            onChange={(value) => setDays(Number(value))}
+          />
+        }
+      >
+        <DelayNotice statuses={(data?.summary ?? []).map((item) => item.field.status)} />
+        <div className="metric-row">
+          {(data?.summary ?? []).map((item) => (
+            <MetricCard
+              key={item.key}
+              label={item.label}
+              field={item.field}
+              digits={item.key === "salesAmountUsd" ? 2 : 0}
+              prefix={item.key === "salesAmountUsd" ? "$" : ""}
+            />
+          ))}
+        </div>
       </SectionCard>
 
       <div className="detail-grid">

@@ -638,42 +638,6 @@ body,
   box-shadow: inset 0 0 0 1px #d0d5dd;
 }
 
-/* 上架矩阵：行=指标，列=渠道，表头首列 sticky */
-.listing-matrix .ant-table-thead > tr > th,
-.listing-matrix .ant-table-tbody > tr > td {
-  padding: 6px 10px !important;
-}
-
-.listing-matrix .matrix-label {
-  color: var(--text-2);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.listing-matrix .matrix-cell {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.content-matrix .matrix-channel,
-.listing-matrix .matrix-channel {
-  display: block;
-  font-weight: 600;
-  color: var(--text-1);
-  /* aliexpress_pop_choice 这类长渠道名要能折行，否则单列吃掉 220px+ */
-  white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.35;
-}
-
-.content-matrix .matrix-channel small,
-.listing-matrix .matrix-channel small {
-  display: block;
-  font-weight: 400;
-  font-size: 11px;
-  color: var(--text-3);
-}
-
 /* 矩阵底部的覆盖范围声明 */
 .matrix-foot {
   display: flex;
@@ -952,72 +916,134 @@ body,
   margin-top: 10px;
 }
 
-.content-matrix {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 220px));
-  gap: var(--gap-2);
+/* 商品全渠道对比：行 = 指标，列 = 渠道 */
+.metric-matrix-wrap {
   min-width: 0;
-}
-
-.content-matrix--scroll {
-  display: flex;
   overflow-x: auto;
-  padding-bottom: 4px;
-}
-
-.content-matrix--scroll .content-matrix__col {
-  flex: 0 0 220px;
-}
-
-.content-matrix__col {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-card);
 }
 
-.content-cell {
+.metric-matrix {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.metric-matrix th,
+.metric-matrix td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  min-width: 176px;
+}
+
+.metric-matrix thead th {
+  background: var(--bg-subtle);
+  vertical-align: middle;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.metric-matrix tbody tr:last-child th,
+.metric-matrix tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* 指标列左贴定，横向滚动时列头跟着走 */
+.metric-matrix th.metric-matrix__rowhead {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 128px;
+  min-width: 128px;
+  max-width: 128px;
+  background: var(--bg-card);
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  border-right: 1px solid var(--border);
+}
+
+.metric-matrix thead th.metric-matrix__rowhead {
+  background: var(--bg-subtle);
+  z-index: 2;
+}
+
+.metric-matrix tbody tr:hover td {
+  background: var(--bg-hover);
+}
+
+.matrix-head {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
+  gap: 2px;
   min-width: 0;
 }
 
-.content-cell__img {
-  width: 100%;
-  height: 72px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle) center / contain no-repeat;
-  color: var(--text-3);
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.matrix-head__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
 }
 
-.content-cell__title {
-  width: 100%;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-1);
+.matrix-head__meta {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metric-matrix__text {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  line-height: 1.45;
+  color: var(--text-1);
 }
 
-.content-cell__meta {
-  font-size: 12px;
-  color: var(--text-2);
-  max-width: 100%;
+.matrix-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.matrix-meter__value {
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.matrix-meter__value small {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.matrix-meter__bar {
+  display: block;
+  width: 100%;
+  max-width: 120px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.matrix-meter__bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+}
+
+.text-warn {
+  color: var(--warn);
 }
 
 .gap-rail {
@@ -1030,6 +1056,12 @@ body,
 .gap-rail__title {
   font-size: 12px;
   color: var(--text-3);
+}
+
+.gap-rail__title--sub {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
 
 .gap-rail__row {
